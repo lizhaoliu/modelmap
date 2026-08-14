@@ -1,0 +1,19 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+
+# modelmap
+.modelmap-cache/
+*.graph.json
+
+# frontend (M2)
+node_modules/
+web/dist/
+
+# misc
+.DS_Store
