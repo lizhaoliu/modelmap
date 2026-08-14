@@ -47,11 +47,18 @@ interface ElkShape {
   layoutOptions?: Record<string, string>
 }
 
+export interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export async function layoutGraph(
   doc: GraphDoc,
   index: GraphIndex,
   expanded: Set<string>,
-): Promise<{ nodes: MMNode[]; edges: Edge[] }> {
+): Promise<{ nodes: MMNode[]; edges: Edge[]; positions: Record<string, Rect> }> {
   const edgesByParent = new Map<string, { src: string; dst: string }[]>()
   for (const e of doc.edges) {
     const parent = index.byId.get(e.src)?.parent
@@ -105,14 +112,24 @@ export async function layoutGraph(
 
   const nodes: MMNode[] = []
   const edges: Edge[] = []
+  const positions: Record<string, Rect> = {}
 
-  const walk = (shapes: ElkShape[], parentId: string | undefined, dir: 'h' | 'v') => {
+  const walk = (
+    shapes: ElkShape[],
+    parentId: string | undefined,
+    dir: 'h' | 'v',
+    offX = 0,
+    offY = 0,
+  ) => {
     for (const s of shapes) {
       const g = index.byId.get(s.id)
       if (!g) continue
       const kids = s.children ?? []
       const isExpanded = kids.length > 0
       const childDir: 'h' | 'v' = dirFor(g.depth + 1) === 'RIGHT' ? 'h' : 'v'
+      const absX = offX + (s.x ?? 0)
+      const absY = offY + (s.y ?? 0)
+      positions[s.id] = { x: absX, y: absY, w: s.width ?? 0, h: s.height ?? 0 }
       nodes.push({
         id: s.id,
         type: isExpanded ? 'containerNode' : 'moduleNode',
@@ -141,7 +158,7 @@ export async function layoutGraph(
           markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR },
         })
       }
-      walk(kids, s.id, childDir)
+      walk(kids, s.id, childDir, absX, absY)
     }
   }
   walk(laid.children ?? [], undefined, 'h')
@@ -155,5 +172,5 @@ export async function layoutGraph(
     })
   }
 
-  return { nodes, edges }
+  return { nodes, edges, positions }
 }

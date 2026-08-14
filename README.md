@@ -14,8 +14,12 @@ Full design: [docs/design.html](docs/design.html) (v1.0, approved 2026-08-14).
 - [x] Design doc
 - [x] M1 — extractor + CLI + API
 - [x] M2 — Explore mode (interactive graph UI)
-- [ ] **M3 — Flow mode (animated forward pass)** *(next)*
-- [ ] M4 — micro-views, gallery, hosted deployment
+- [x] M3 — Flow mode (animated forward pass with captions)
+- [ ] **M4 — micro-views, gallery, hosted deployment** *(next)*
+
+M4 also folds in the hosted-hardening list (measured 2026-08-14): lazy torch import in
+the server parent (−250 MB), worker-count env knob, in-flight extraction de-dup,
+pre-gzipped cached responses, queue back-pressure (429), and the §05 extraction sandbox.
 
 ## Quickstart
 

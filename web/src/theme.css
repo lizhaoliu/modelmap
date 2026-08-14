@@ -286,6 +286,81 @@ kbd {
 .mm-notes p { margin: 0 0 4px; font-size: 0.78rem; color: var(--muted); }
 .mm-hint { color: var(--muted); font-size: 0.8rem; margin-top: 20px; line-height: 1.7; }
 
+/* ---------- flow mode ---------- */
+.mm-btn-flow.is-on { color: var(--flow-text); border-color: var(--flow); background: var(--flow-wash); }
+.mm-btn:disabled { opacity: 0.45; cursor: default; }
+
+.mm-flow-pulse {
+  position: absolute; left: 0; top: 0;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--flow);
+  pointer-events: none;
+  z-index: 900;
+  will-change: transform;
+  animation: mm-glow 1.2s ease-in-out infinite; /* transform is set per-frame inline; only the glow animates */
+}
+@keyframes mm-glow {
+  0%, 100% { box-shadow: 0 0 8px 2px color-mix(in srgb, var(--flow) 45%, transparent); }
+  50% { box-shadow: 0 0 18px 6px color-mix(in srgb, var(--flow) 60%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .mm-flow-pulse { display: none; } }
+
+/* the running pulse lights the active node; spent nodes keep a warm residue */
+.react-flow__node.mm-flow-active .mm-node,
+.react-flow__node.mm-flow-active .mm-container {
+  outline: 2px solid var(--flow);
+  outline-offset: 3px;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--flow) 35%, transparent);
+}
+.react-flow__node.mm-flow-spent .mm-node,
+.react-flow__node.mm-flow-spent .mm-container {
+  background-color: color-mix(in srgb, var(--flow) 7%, var(--card));
+}
+
+.mm-flowbar-wrap {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  z-index: 40;
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  width: min(760px, calc(100% - 40px));
+}
+.mm-hud {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; justify-content: center;
+  background: var(--card); border: 1px solid var(--line-soft); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 8px 16px; max-width: 100%;
+}
+.mm-hud-name { font-family: 'IBM Plex Mono', monospace; font-size: 0.88rem; font-weight: 500; }
+.mm-hud-member {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem;
+  color: var(--flow-text); background: var(--flow-wash);
+  border: 1px solid var(--flow); border-radius: 999px; padding: 1px 9px;
+  font-variant-numeric: tabular-nums;
+}
+.mm-hud-shapes { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.mm-hud-arrow { color: var(--flow-text); }
+.mm-hud-caption { font-size: 0.8rem; color: var(--muted); flex-basis: 100%; text-align: center; }
+.mm-flowbar {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px;
+  box-shadow: var(--shadow); padding: 10px 14px;
+}
+.mm-flow-play {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  background: var(--flow); color: var(--paper);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.8rem;
+}
+.mm-flow-scrub { flex: 1; accent-color: var(--flow); min-width: 120px; }
+.mm-flow-time, .mm-flow-step {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.mm-flow-approx {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--flow-text); border: 1px solid var(--flow);
+  border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+}
+
 /* ---------- overlay / error ---------- */
 .mm-overlay {
   position: absolute; inset: 0; z-index: 30;

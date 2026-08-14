@@ -50,8 +50,13 @@ export default function App() {
       const id = urlModel()
       if (!id) return
       await loadModel(id, { push: false })
-      const sel = new URL(location.href).searchParams.get('sel')
+      const params = new URL(location.href).searchParams
+      const sel = params.get('sel')
       if (sel != null) select(sel)
+      if (params.get('mode') === 'flow' && (useStore.getState().doc?.trace.length ?? 0) > 0) {
+        const { useFlowStore } = await import('./flow/flowStore')
+        useFlowStore.getState().activate()
+      }
     }
     void boot()
     const onPop = () => {

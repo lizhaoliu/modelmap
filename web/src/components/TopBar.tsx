@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useFlowStore } from '../flow/flowStore'
 import { fmtParams } from '../fmt'
 import { useStore } from '../store'
 import { ModelSearch } from './ModelSearch'
@@ -12,6 +13,9 @@ function applyTheme(t: Theme) {
 
 export function TopBar() {
   const doc = useStore((s) => s.doc)
+  const flowActive = useFlowStore((s) => s.active)
+  const activateFlow = useFlowStore((s) => s.activate)
+  const deactivateFlow = useFlowStore((s) => s.deactivate)
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem('mm-theme') as Theme) || 'system',
   )
@@ -57,6 +61,19 @@ export function TopBar() {
             {doc.fidelity}
           </span>
           <span className="mm-total-params">{fmtParams(doc.params_total)} params</span>
+          {doc.trace.length > 0 ? (
+            <button
+              className={`mm-btn mm-btn-flow ${flowActive ? 'is-on' : ''}`}
+              onClick={() => (flowActive ? deactivateFlow() : activateFlow())}
+              title="Replay the forward pass (F)"
+            >
+              {flowActive ? 'exit flow' : '▶ flow'}
+            </button>
+          ) : (
+            <button className="mm-btn" disabled title="No trace available (weights view)">
+              ▶ flow
+            </button>
+          )}
           <button className="mm-btn" onClick={share}>
             {copied ? 'copied ✓' : 'share'}
           </button>
