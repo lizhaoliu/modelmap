@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import multiprocessing
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from modelmap import __version__, cache
 from modelmap.schema import SCHEMA_VERSION
@@ -23,10 +24,18 @@ EXTRACTION_TIMEOUT_S = 180
 _pool: concurrent.futures.ProcessPoolExecutor | None = None
 
 
+def _make_pool() -> concurrent.futures.ProcessPoolExecutor:
+    # spawn, not fork: forking the running uvicorn process (with live event-loop
+    # threads) can deadlock the child nondeterministically
+    return concurrent.futures.ProcessPoolExecutor(
+        max_workers=2, mp_context=multiprocessing.get_context("spawn")
+    )
+
+
 def _get_pool() -> concurrent.futures.ProcessPoolExecutor:
     global _pool
     if _pool is None:
-        _pool = concurrent.futures.ProcessPoolExecutor(max_workers=2)
+        _pool = _make_pool()
     return _pool
 
 
@@ -36,10 +45,17 @@ def _reset_pool() -> None:
     global _pool
     if _pool is not None:
         _pool.shutdown(wait=False, cancel_futures=True)
-    _pool = concurrent.futures.ProcessPoolExecutor(max_workers=2)
+    _pool = _make_pool()
 
 
 def _extract_job(model_id: str, revision: str, token: str | None) -> dict:
+    # quiet the worker: progress bars + per-request http logs can be megabytes
+    # for many-shard repos, and a blocked stderr pipe would stall extraction
+    import os
+
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     from modelmap.extract import extract_graph
 
     return extract_graph(model_id, revision=revision, token=token).to_json_dict()
@@ -102,4 +118,11 @@ def search(q: str = Query(min_length=1), limit: int = Query(default=10, le=50)):
 
 _web = Path(__file__).parent / "web"
 if (_web / "index.html").exists():  # M2 build output
-    app.mount("/", StaticFiles(directory=_web, html=True), name="spa")
+    # catch-all so client routes like /m/Qwen/Qwen3-8B survive a refresh;
+    # /api/* routes are declared above and win
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str):
+        candidate = (_web / path).resolve()
+        if path and candidate.is_file() and candidate.is_relative_to(_web):
+            return FileResponse(candidate)
+        return FileResponse(_web / "index.html")

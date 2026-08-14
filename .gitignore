@@ -17,3 +17,6 @@ web/dist/
 
 # misc
 .DS_Store
+
+# built SPA (produced by: cd web && npm run build)
+src/modelmap/web/

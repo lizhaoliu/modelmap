@@ -12,22 +12,29 @@ Full design: [docs/design.html](docs/design.html) (v1.0, approved 2026-08-14).
 ## Status
 
 - [x] Design doc
-- [ ] **M1 — extractor + CLI + API** *(in progress)*
-- [ ] M2 — Explore mode (interactive graph UI)
-- [ ] M3 — Flow mode (animated forward pass)
+- [x] M1 — extractor + CLI + API
+- [x] M2 — Explore mode (interactive graph UI)
+- [ ] **M3 — Flow mode (animated forward pass)** *(next)*
 - [ ] M4 — micro-views, gallery, hosted deployment
 
-## Quickstart (M1)
+## Quickstart
 
 ```bash
 uv sync
+(cd web && npm install && npm run build)   # builds the SPA into src/modelmap/web
 
-# dump a graph JSON for any HF model id
-uv run modelmap dump Qwen/Qwen3-8B -o qwen3-8b.graph.json
-
-# serve the API (the SPA lands in M2)
 uv run modelmap serve --port 7860
-# → GET http://127.0.0.1:7860/api/graph/Qwen/Qwen3-8B
+# → open http://127.0.0.1:7860 · search a model or open /m/Qwen/Qwen3-8B
+
+# or dump a graph JSON directly
+uv run modelmap dump Qwen/Qwen3-8B -o qwen3-8b.graph.json
+```
+
+### Frontend development
+
+```bash
+uv run modelmap serve --port 7860   # API
+cd web && npm run dev               # Vite dev server on :5173, proxies /api
 ```
 
 Repos that require `trust_remote_code` are refused by default (they execute arbitrary
