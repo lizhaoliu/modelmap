@@ -52,6 +52,11 @@ def run_trace(
     try:
         with torch.no_grad():
             model(**inputs)
+        if len(steps) >= MAX_STEPS:
+            notes.append(
+                f"trace truncated at {MAX_STEPS} steps (very high module count); "
+                "flow replay covers the recorded prefix"
+            )
         return steps, "full", notes
     except Exception as e:  # data-dependent shapes, .item(), … — expected for e.g. MoE routing
         notes.append(
