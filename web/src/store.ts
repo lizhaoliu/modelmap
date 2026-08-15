@@ -10,6 +10,9 @@ interface State {
   errorModel: string | null // id whose load failed, for the retry button
   expanded: Set<string>
   selected: string | null
+  /** container just opened — the canvas frames it once, then clears this */
+  lastExpanded: string | null
+  clearLastExpanded: () => void
   loadModel: (id: string, opts?: { push?: boolean }) => Promise<void>
   toggleExpand: (id: string) => void
   expand: (id: string) => void
@@ -39,6 +42,8 @@ export const useStore = create<State>((set, get) => ({
   errorModel: null,
   expanded: new Set(),
   selected: null,
+  lastExpanded: null,
+  clearLastExpanded: () => set({ lastExpanded: null }),
 
   async loadModel(id, opts) {
     if (get().loading === id) return
@@ -66,9 +71,13 @@ export const useStore = create<State>((set, get) => ({
 
   toggleExpand(id) {
     const expanded = new Set(get().expanded)
-    if (expanded.has(id)) expanded.delete(id)
-    else expanded.add(id)
-    set({ expanded })
+    if (expanded.has(id)) {
+      expanded.delete(id)
+      set({ expanded, lastExpanded: null })
+    } else {
+      expanded.add(id)
+      set({ expanded, lastExpanded: id })
+    }
   },
 
   expand(id) {
@@ -78,10 +87,14 @@ export const useStore = create<State>((set, get) => ({
   expandMany(ids) {
     const { index } = get()
     const expanded = new Set(get().expanded)
+    let opened: string | null = null
     for (const id of ids) {
-      if (index?.children.get(id)?.length) expanded.add(id)
+      if (index?.children.get(id)?.length && !expanded.has(id)) {
+        expanded.add(id)
+        opened = opened ?? id
+      }
     }
-    set({ expanded })
+    set({ expanded, lastExpanded: opened })
   },
 
   collapse(id) {

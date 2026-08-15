@@ -16,6 +16,7 @@ import { layoutGraph, type MMNode, type Rect } from '../graph/layout'
 import { nodeTypes } from '../graph/nodes'
 import { useStore } from '../store'
 import type { Kind } from '../types'
+import { Breadcrumb } from './Breadcrumb'
 import { FlowBar } from './FlowBar'
 
 const KIND_HEX: Record<Kind, string> = {
@@ -45,7 +46,9 @@ export function Canvas() {
   const select = useStore((s) => s.select)
   const expand = useStore((s) => s.expand)
   const collapse = useStore((s) => s.collapse)
-  const { fitView } = useReactFlow()
+  const lastExpanded = useStore((s) => s.lastExpanded)
+  const clearLastExpanded = useStore((s) => s.clearLastExpanded)
+  const { fitView, fitBounds } = useReactFlow()
 
   const [view, setView] = useState<View>({ nodes: [], edges: [], positions: {} })
   const lastModel = useRef<string | null>(null)
@@ -67,17 +70,34 @@ export function Canvas() {
       if (lastModel.current !== doc.model_id) {
         lastModel.current = doc.model_id
         requestAnimationFrame(() => fitView({ padding: 0.12 }))
+      } else if (lastExpanded && v.positions[lastExpanded]) {
+        // frame the container that just opened so its extent is unmistakable
+        const r = v.positions[lastExpanded]
+        requestAnimationFrame(() => {
+          fitBounds({ x: r.x, y: r.y, width: r.w, height: r.h }, { padding: 0.25, duration: 350 })
+          clearLastExpanded()
+        })
       }
     })
     return () => {
       alive = false
     }
-  }, [doc, index, expanded, fitView])
+  }, [doc, index, expanded, fitView, fitBounds, lastExpanded, clearLastExpanded])
 
-  const nodes = useMemo(
-    () => view.nodes.map((n) => ({ ...n, selected: n.id === selected })),
-    [view.nodes, selected],
-  )
+  const nodes = useMemo(() => {
+    // ancestors of the selection get a strengthened border — the trail
+    // that pairs with the breadcrumb
+    const ancestors = new Set<string>()
+    if (selected) {
+      const parts = selected.split('.')
+      for (let i = 1; i < parts.length; i++) ancestors.add(parts.slice(0, i).join('.'))
+    }
+    return view.nodes.map((n) => ({
+      ...n,
+      selected: n.id === selected,
+      className: ancestors.has(n.id) ? 'mm-ancestor' : undefined,
+    }))
+  }, [view.nodes, selected])
 
   // keyboard: E expand · C collapse · 0 fit · F flow · Space play/pause ·
   // ←/→ step beats · Esc exit flow / deselect (design doc §07–08)
@@ -142,6 +162,7 @@ export function Canvas() {
           </ViewportPortal>
         )}
       </ReactFlow>
+      <Breadcrumb />
       <FlowBar script={script} api={api} />
     </div>
   )

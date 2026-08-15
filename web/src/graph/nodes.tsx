@@ -90,7 +90,12 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
 export function ContainerNode({ data, selected }: NodeProps<MMNode>) {
   const toggleExpand = useStore((s) => s.toggleExpand)
   const { g, repeat, stackOf, dir } = data
-  const cls = ['mm-container', `kind-${g.kind}`, selected ? 'is-selected' : '']
+  const cls = [
+    'mm-container',
+    `kind-${g.kind}`,
+    g.depth % 2 ? 'lvl-odd' : 'lvl-even', // alternating surfaces keep nesting legible
+    selected ? 'is-selected' : '',
+  ]
     .filter(Boolean)
     .join(' ')
   return (
