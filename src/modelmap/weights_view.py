@@ -6,10 +6,57 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from huggingface_hub import get_safetensors_metadata
+from huggingface_hub import HfApi, get_safetensors_metadata, parse_safetensors_file_metadata
 
 from modelmap import collapse
 from modelmap.schema import SCHEMA_VERSION, Edge, Graph, Node
+
+MAX_FILES = 300
+
+
+def _collect_tensors(model_id: str, revision: str, token: str | None, notes: list[str]):
+    """Tensor name → TensorInfo for the whole repo.
+
+    Fast path: the standard root-level model.safetensors(.index.json). Fallback
+    (diffusers-style pipelines, arbitrary layouts): scan every *.safetensors in
+    the repo, namespacing tensor names by their folder so components don't
+    collide ("transformer/…" → "transformer.blocks.0…")."""
+    try:
+        meta = get_safetensors_metadata(model_id, revision=revision, token=token)
+        tensors = {}
+        for fm in meta.files_metadata.values():
+            tensors.update(fm.tensors)
+        return tensors
+    except Exception:
+        pass
+
+    files = [
+        f
+        for f in HfApi(token=token).list_repo_files(model_id, revision=revision)
+        if f.endswith(".safetensors")
+    ]
+    if not files:
+        raise ValueError(f"'{model_id}' has no safetensors files to build a weights view from")
+    if len(files) > MAX_FILES:
+        notes.append(f"repo has {len(files)} safetensors files; reading the first {MAX_FILES}")
+        files = files[:MAX_FILES]
+
+    tensors = {}
+    failed = 0
+    for f in files:
+        prefix = f.rsplit("/", 1)[0].replace("/", ".") + "." if "/" in f else ""
+        try:
+            fm = parse_safetensors_file_metadata(model_id, f, revision=revision, token=token)
+        except Exception:
+            failed += 1
+            continue
+        for tname, info in fm.tensors.items():
+            tensors[prefix + tname] = info
+    if failed:
+        notes.append(f"{failed} safetensors files could not be parsed")
+    if not tensors:
+        raise ValueError(f"could not read any safetensors headers from '{model_id}'")
+    return tensors
 
 
 def weights_graph(
@@ -18,10 +65,8 @@ def weights_graph(
     token: str | None = None,
     notes: list[str] | None = None,
 ) -> Graph:
-    meta = get_safetensors_metadata(model_id, revision=revision, token=token)
-    tensors = {}
-    for fm in meta.files_metadata.values():
-        tensors.update(fm.tensors)
+    notes = list(notes or [])
+    tensors = _collect_tensors(model_id, revision, token, notes)
 
     # "model.layers.0.self_attn.q_proj.weight" → module "…q_proj", tensor "weight"
     mod_weights: dict[str, dict[str, list[int]]] = defaultdict(dict)
@@ -90,7 +135,7 @@ def weights_graph(
         repeats=repeats,
         edges=edges,
         trace=[],
-        notes=list(notes or []),
+        notes=notes,
     )
 
 

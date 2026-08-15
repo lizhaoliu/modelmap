@@ -69,9 +69,12 @@ export function buildIndex(doc: GraphDoc): GraphIndex {
   const children = new Map<string | null, GNode[]>()
   for (const n of doc.nodes) {
     byId.set(n.id, n)
-    const list = children.get(n.parent) ?? []
+    // weights-view graphs have no "" root module — their top-level nodes carry
+    // parent null; normalize them under '' so the canvas treats them as roots
+    const key = n.parent ?? (n.id === '' ? null : '')
+    const list = children.get(key) ?? []
     list.push(n)
-    children.set(n.parent, list)
+    children.set(key, list)
   }
   for (const list of children.values()) list.sort((a, b) => a.order - b.order)
   const repeatByRep = new Map(doc.repeats.map((r) => [r.representative, r]))

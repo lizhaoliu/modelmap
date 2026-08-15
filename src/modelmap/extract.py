@@ -46,10 +46,14 @@ def extract_graph(
             model_id, revision=revision, token=token, trust_remote_code=trust_remote_code
         )
     except ValueError as e:
-        if "trust_remote_code" not in str(e):
-            raise
-        # custom-code repos execute arbitrary Python; refused by default (§05)
-        notes.append("repo requires trust_remote_code; refused — weights view only")
+        # two expected shapes: custom-code repos (execute arbitrary Python —
+        # refused by default, §05) and repos transformers can't parse at all
+        # (no model_type, diffusers-style pipelines, brand-new architectures);
+        # both degrade to the weights view instead of erroring
+        if "trust_remote_code" in str(e):
+            notes.append("repo requires trust_remote_code; refused — weights view only")
+        else:
+            notes.append(f"not a transformers-loadable config ({e}) — weights view only")
         return weights_view.weights_graph(model_id, revision=revision, token=token, notes=notes)
 
     # eager attention is plain matmul+softmax and always has meta kernels;
