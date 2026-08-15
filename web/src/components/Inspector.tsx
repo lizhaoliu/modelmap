@@ -1,4 +1,4 @@
-import { fmtParams, fmtPct, fmtShape, leafName } from '../fmt'
+import { fmtParams, fmtPct, fmtShape, leafName, traceLegend } from '../fmt'
 import { useStore } from '../store'
 
 const CONFIG_KEYS = [
@@ -90,6 +90,7 @@ export function Inspector() {
           </>
         )}
       </dl>
+      {io && traceLegend(doc.trace) && <p className="mm-io-note">{traceLegend(doc.trace)}</p>}
       <div className="mm-param-bar" title="share of total parameters">
         <div
           className={`mm-param-fill kind-${node.kind}`}

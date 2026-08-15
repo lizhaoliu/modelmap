@@ -1,4 +1,4 @@
-import { fmtShape, leafName } from '../fmt'
+import { fmtShape, leafName, traceLegend } from '../fmt'
 import type { FlowScript } from '../flow/beats'
 import { caption } from '../flow/captions'
 import type { FlowApi } from '../flow/engine'
@@ -45,6 +45,7 @@ export function FlowBar({ script, api }: { script: FlowScript; api: FlowApi }) {
           {inS} <span className="mm-hud-arrow">→</span> {outS}
         </span>
         {node && <span className="mm-hud-caption">{caption(node, doc, beat)}</span>}
+        {traceLegend(doc.trace) && <span className="mm-hud-legend">{traceLegend(doc.trace)}</span>}
       </div>
       <div className="mm-flowbar">
         <button
