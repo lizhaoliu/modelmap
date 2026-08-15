@@ -386,3 +386,4 @@ kbd {
   border-radius: 9px; box-shadow: var(--shadow); padding: 12px 18px;
 }
 .mm-error p { margin: 4px 0 0; color: var(--muted); font-size: 0.82rem; word-break: break-word; }
+.mm-error-retry { margin-top: 10px; }

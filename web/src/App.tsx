@@ -42,6 +42,7 @@ export default function App() {
   const doc = useStore((s) => s.doc)
   const loading = useStore((s) => s.loading)
   const error = useStore((s) => s.error)
+  const errorModel = useStore((s) => s.errorModel)
   const loadModel = useStore((s) => s.loadModel)
   const select = useStore((s) => s.select)
 
@@ -86,6 +87,11 @@ export default function App() {
             <div className="mm-error" role="alert">
               <strong>Could not load this model.</strong>
               <p>{error}</p>
+              {errorModel && (
+                <button className="mm-btn mm-error-retry" onClick={() => void loadModel(errorModel)}>
+                  try again
+                </button>
+              )}
             </div>
           )}
         </div>

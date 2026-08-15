@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 from huggingface_hub import HfApi, get_safetensors_metadata, parse_safetensors_file_metadata
 
 from modelmap import collapse
+from modelmap.hubio import with_retries
 from modelmap.schema import SCHEMA_VERSION, Edge, Graph, Node
 
 MAX_FILES = 300
@@ -22,7 +23,9 @@ def _collect_tensors(model_id: str, revision: str, token: str | None, notes: lis
     the repo, namespacing tensor names by their folder so components don't
     collide ("transformer/…" → "transformer.blocks.0…")."""
     try:
-        meta = get_safetensors_metadata(model_id, revision=revision, token=token)
+        meta = with_retries(
+            lambda: get_safetensors_metadata(model_id, revision=revision, token=token)
+        )
         tensors = {}
         for fm in meta.files_metadata.values():
             tensors.update(fm.tensors)
@@ -32,7 +35,9 @@ def _collect_tensors(model_id: str, revision: str, token: str | None, notes: lis
 
     files = [
         f
-        for f in HfApi(token=token).list_repo_files(model_id, revision=revision)
+        for f in with_retries(
+            lambda: HfApi(token=token).list_repo_files(model_id, revision=revision)
+        )
         if f.endswith(".safetensors")
     ]
     if not files:
@@ -46,7 +51,11 @@ def _collect_tensors(model_id: str, revision: str, token: str | None, notes: lis
     for f in files:
         prefix = f.rsplit("/", 1)[0].replace("/", ".") + "." if "/" in f else ""
         try:
-            fm = parse_safetensors_file_metadata(model_id, f, revision=revision, token=token)
+            fm = with_retries(
+                lambda f=f: parse_safetensors_file_metadata(
+                    model_id, f, revision=revision, token=token
+                )
+            )
         except Exception:
             failed += 1
             continue

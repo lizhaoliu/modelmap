@@ -7,6 +7,7 @@ interface State {
   index: GraphIndex | null
   loading: string | null // model id being loaded
   error: string | null
+  errorModel: string | null // id whose load failed, for the retry button
   expanded: Set<string>
   selected: string | null
   loadModel: (id: string, opts?: { push?: boolean }) => Promise<void>
@@ -35,12 +36,13 @@ export const useStore = create<State>((set, get) => ({
   index: null,
   loading: null,
   error: null,
+  errorModel: null,
   expanded: new Set(),
   selected: null,
 
   async loadModel(id, opts) {
     if (get().loading === id) return
-    set({ loading: id, error: null })
+    set({ loading: id, error: null, errorModel: null })
     try {
       const doc = await fetchGraph(id)
       const index = buildIndex(doc)
@@ -49,6 +51,7 @@ export const useStore = create<State>((set, get) => ({
         index,
         loading: null,
         error: null,
+        errorModel: null,
         expanded: defaultExpanded(index),
         selected: null,
       })
@@ -57,7 +60,7 @@ export const useStore = create<State>((set, get) => ({
       }
       document.title = `${id.split('/').pop()} · modelmap`
     } catch (e) {
-      set({ loading: null, error: e instanceof Error ? e.message : String(e) })
+      set({ loading: null, error: e instanceof Error ? e.message : String(e), errorModel: id })
     }
   },
 

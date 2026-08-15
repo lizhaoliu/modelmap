@@ -97,6 +97,12 @@ def graph(
         raise HTTPException(504, f"extraction exceeded {EXTRACTION_TIMEOUT_S}s")
     except Exception as e:
         name = type(e).__name__
+        if "Connect" in name or "Timeout" in name:
+            raise HTTPException(
+                502,
+                f"the Hugging Face Hub was unreachable while extracting '{model_id}' "
+                "— usually transient; try again",
+            )
         status = 404 if "NotFound" in name else 403 if "Gated" in name else 422
         raise HTTPException(status, f"could not extract '{model_id}': {name}: {e}")
 

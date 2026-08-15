@@ -24,6 +24,7 @@ from huggingface_hub import get_safetensors_metadata
 from transformers import AutoConfig, AutoModel
 
 from modelmap import collapse, trace, weights_view
+from modelmap.hubio import with_retries
 from modelmap.schema import SCHEMA_VERSION, Edge, Graph, Node
 
 log = logging.getLogger(__name__)
@@ -42,8 +43,10 @@ def extract_graph(
 ) -> Graph:
     notes: list[str] = []
     try:
-        config = AutoConfig.from_pretrained(
-            model_id, revision=revision, token=token, trust_remote_code=trust_remote_code
+        config = with_retries(
+            lambda: AutoConfig.from_pretrained(
+                model_id, revision=revision, token=token, trust_remote_code=trust_remote_code
+            )
         )
     except ValueError as e:
         # two expected shapes: custom-code repos (execute arbitrary Python —
@@ -218,7 +221,9 @@ def _apply_dtypes(model_id, revision, token, config, nodes, notes) -> None:
             if n.weight_shapes:
                 n.dtype = d
     try:
-        meta = get_safetensors_metadata(model_id, revision=revision, token=token)
+        meta = with_retries(
+            lambda: get_safetensors_metadata(model_id, revision=revision, token=token)
+        )
     except Exception as e:
         notes.append(f"no safetensors metadata: {type(e).__name__}")
         return
