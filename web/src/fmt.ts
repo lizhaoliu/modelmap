@@ -29,14 +29,3 @@ export function leafName(id: string): string {
   const seg = id.split('.').pop() ?? id
   return seg === '' ? 'model' : seg
 }
-
-/** Explains the recurring constants in traced activation shapes (batch, seq)
- *  from the dummy input the trace actually ran — true for any architecture. */
-export function traceLegend(trace: { inputs: number[][] }[]): string | null {
-  const first = trace[0]?.inputs?.[0]
-  if (!first || first.length < 2) return null
-  const [b, ...rest] = first
-  if (first.length === 2) return `traced with batch ${b} · ${rest[0]} input tokens`
-  if (first.length === 4) return `traced with batch ${b} · ${rest.join(' × ')} image`
-  return `traced with input [${first.join(' × ')}]`
-}

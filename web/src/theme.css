@@ -339,11 +339,7 @@ kbd {
 .mm-hud-shapes { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .mm-hud-arrow { color: var(--flow-text); }
 .mm-hud-caption { font-size: 0.8rem; color: var(--muted); flex-basis: 100%; text-align: center; }
-.mm-hud-legend {
-  font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted);
-  flex-basis: 100%; text-align: center; opacity: 0.8;
-}
-.mm-io-note { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); margin: 8px 0 0; }
+.mm-dimlab { font-style: normal; font-size: 0.82em; color: var(--flow-text); opacity: 0.85; }
 .mm-flowbar {
   display: flex; align-items: center; gap: 12px; width: 100%;
   background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px;

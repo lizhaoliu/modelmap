@@ -1,9 +1,10 @@
-import { fmtShape, leafName, traceLegend } from '../fmt'
+import { leafName } from '../fmt'
 import type { FlowScript } from '../flow/beats'
 import { caption } from '../flow/captions'
 import type { FlowApi } from '../flow/engine'
 import { useFlowStore } from '../flow/flowStore'
 import { useStore } from '../store'
+import { Shape } from './Shape'
 
 const SPEEDS = [0.5, 1, 2, 4]
 
@@ -29,8 +30,8 @@ export function FlowBar({ script, api }: { script: FlowScript; api: FlowApi }) {
   if (!active || !doc || !index || !script.beats.length) return null
   const beat = script.beats[Math.min(beatIdx, script.beats.length - 1)]
   const node = index.byId.get(beat.node)
-  const inS = beat.inShapes[0] ? fmtShape(beat.inShapes[0]) : '—'
-  const outS = beat.outShapes[0] ? fmtShape(beat.outShapes[0]) : '—'
+  const inShape = beat.inShapes[0]
+  const outShape = beat.outShapes[0]
 
   return (
     <div className="mm-flowbar-wrap">
@@ -42,10 +43,11 @@ export function FlowBar({ script, api }: { script: FlowScript; api: FlowApi }) {
           </span>
         )}
         <span className="mm-hud-shapes">
-          {inS} <span className="mm-hud-arrow">→</span> {outS}
+          {inShape ? <Shape shape={inShape} labels={index.dimLabels} batch={index.traceBatch} /> : '—'}{' '}
+          <span className="mm-hud-arrow">→</span>{' '}
+          {outShape ? <Shape shape={outShape} labels={index.dimLabels} batch={index.traceBatch} /> : '—'}
         </span>
         {node && <span className="mm-hud-caption">{caption(node, doc, beat)}</span>}
-        {traceLegend(doc.trace) && <span className="mm-hud-legend">{traceLegend(doc.trace)}</span>}
       </div>
       <div className="mm-flowbar">
         <button

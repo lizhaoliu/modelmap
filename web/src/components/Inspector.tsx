@@ -1,5 +1,6 @@
-import { fmtParams, fmtPct, fmtShape, leafName, traceLegend } from '../fmt'
+import { fmtParams, fmtPct, leafName } from '../fmt'
 import { useStore } from '../store'
+import { Shape } from './Shape'
 
 const CONFIG_KEYS = [
   'hidden_size', 'num_hidden_layers', 'num_attention_heads', 'num_key_value_heads',
@@ -84,13 +85,30 @@ export function Inspector() {
         {io && (
           <>
             <dt>input</dt>
-            <dd>{io.inputs.map(fmtShape).join('  ') || '—'}</dd>
+            <dd>
+              {io.inputs.length
+                ? io.inputs.map((s, i) => (
+                    <span key={i}>
+                      {i > 0 && '  '}
+                      <Shape shape={s} labels={index.dimLabels} batch={index.traceBatch} />
+                    </span>
+                  ))
+                : '—'}
+            </dd>
             <dt>output</dt>
-            <dd>{io.outputs.map(fmtShape).join('  ') || '—'}</dd>
+            <dd>
+              {io.outputs.length
+                ? io.outputs.map((s, i) => (
+                    <span key={i}>
+                      {i > 0 && '  '}
+                      <Shape shape={s} labels={index.dimLabels} batch={index.traceBatch} />
+                    </span>
+                  ))
+                : '—'}
+            </dd>
           </>
         )}
       </dl>
-      {io && traceLegend(doc.trace) && <p className="mm-io-note">{traceLegend(doc.trace)}</p>}
       <div className="mm-param-bar" title="share of total parameters">
         <div
           className={`mm-param-fill kind-${node.kind}`}
@@ -105,7 +123,9 @@ export function Inspector() {
               {weights.map(([name, shape]) => (
                 <tr key={name}>
                   <td>{name}</td>
-                  <td>{fmtShape(shape)}</td>
+                  <td>
+                    <Shape shape={shape} labels={index.dimLabels} />
+                  </td>
                   <td className="mm-dim">{fmtParams(shape.reduce((a, b) => a * b, 1))}</td>
                 </tr>
               ))}
