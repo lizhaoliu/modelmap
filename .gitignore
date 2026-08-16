@@ -20,3 +20,6 @@ web/dist/
 
 # built SPA (produced by: cd web && npm run build)
 src/modelmap/web/
+
+# e2e screenshots
+tests/e2e/shots/

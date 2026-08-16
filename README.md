@@ -43,3 +43,14 @@ cd web && npm run dev               # Vite dev server on :5173, proxies /api
 
 Repos that require `trust_remote_code` are refused by default (they execute arbitrary
 Python); pass `--trust-remote-code` only for repos you trust, ideally locally.
+
+## Tests
+
+```bash
+uv run pytest                                  # unit tests (collapse, hub retries)
+uv run modelmap serve --port 7860 &            # then the browser acceptance suites:
+uv run python tests/e2e/test_explore.py        # M2 explore mode
+uv run python tests/e2e/test_flow.py           # M3 flow mode
+uv run python tests/e2e/test_tilt.py           # 2.5D tilt prototype
+```
+The e2e suites need `playwright` (`uv pip install playwright`) and a Chromium build.
