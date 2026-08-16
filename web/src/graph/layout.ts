@@ -52,8 +52,6 @@ export interface Rect {
   y: number
   w: number
   h: number
-  /** nesting depth — drives 2.5D elevation */
-  d: number
 }
 
 export async function layoutGraph(
@@ -131,7 +129,7 @@ export async function layoutGraph(
       const childDir: 'h' | 'v' = dirFor(g.depth + 1) === 'RIGHT' ? 'h' : 'v'
       const absX = offX + (s.x ?? 0)
       const absY = offY + (s.y ?? 0)
-      positions[s.id] = { x: absX, y: absY, w: s.width ?? 0, h: s.height ?? 0, d: g.depth }
+      positions[s.id] = { x: absX, y: absY, w: s.width ?? 0, h: s.height ?? 0 }
       nodes.push({
         id: s.id,
         type: isExpanded ? 'containerNode' : 'moduleNode',
@@ -140,8 +138,6 @@ export async function layoutGraph(
         // before/without DOM measurement
         width: s.width,
         height: s.height,
-        // nesting depth as a CSS var on the wrapper: 2.5D elevation reads it
-        style: { '--mm-depth': g.depth } as React.CSSProperties,
         ...(parentId ? { parentId } : {}),
         data: {
           g,

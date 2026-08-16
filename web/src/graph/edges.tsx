@@ -1,10 +1,10 @@
 import { BaseEdge, Position, getBezierPath, useInternalNode, type EdgeProps } from '@xyflow/react'
 import type { MMData } from './layout'
 
-/** Edge whose endpoints come from node geometry (position + explicit size),
- *  not DOM-measured handle bounds. Identical to the default bezier in 2D,
- *  and stays correct under the 2.5D tilt, where getBoundingClientRect-based
- *  handle measurement returns perspective-projected (wrong) coordinates. */
+/** Edge whose endpoints come from node geometry (position + explicit size)
+ *  rather than DOM-measured handle bounds. Renders like the default bezier,
+ *  but never depends on layout measurement timing or CSS transforms — our
+ *  nodes have known sizes and fixed handle sides, so geometry is exact. */
 export function MMEdge({ id, source, target, markerEnd, style }: EdgeProps) {
   const s = useInternalNode(source)
   const t = useInternalNode(target)

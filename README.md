@@ -51,6 +51,5 @@ uv run pytest                                  # unit tests (collapse, hub retri
 uv run modelmap serve --port 7860 &            # then the browser acceptance suites:
 uv run python tests/e2e/test_explore.py        # M2 explore mode
 uv run python tests/e2e/test_flow.py           # M3 flow mode
-uv run python tests/e2e/test_tilt.py           # 2.5D tilt prototype
 ```
 The e2e suites need `playwright` (`uv pip install playwright`) and a Chromium build.

@@ -6,7 +6,6 @@ import {
   MiniMap,
   ReactFlow,
   ViewportPortal,
-  useOnViewportChange,
   useReactFlow,
   type Edge,
 } from '@xyflow/react'
@@ -50,15 +49,8 @@ export function Canvas() {
   const collapse = useStore((s) => s.collapse)
   const lastExpanded = useStore((s) => s.lastExpanded)
   const clearLastExpanded = useStore((s) => s.clearLastExpanded)
-  const tilt = useStore((s) => s.tilt)
-  const setTilt = useStore((s) => s.setTilt)
   const { fitView, fitBounds } = useReactFlow()
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  // elevation and perspective scale with zoom so the 3D reads as one scene
-  useOnViewportChange({
-    onChange: (v) => rootRef.current?.style.setProperty('--mm-zoom', String(v.zoom)),
-  })
-  const pad = tilt ? 0.28 : 0.12
+  const pad = 0.12
 
   const [view, setView] = useState<View>({ nodes: [], edges: [], positions: {} })
   const lastModel = useRef<string | null>(null)
@@ -124,7 +116,6 @@ export function Canvas() {
         if (flow.active) flow.deactivate()
         else select(null)
       } else if (e.key === '0') fitView({ padding: pad, duration: 250 })
-      else if (e.key === 't') setTilt(!tilt)
       else if (e.key === 'f' && doc?.trace.length) {
         flow.active ? flow.deactivate() : flow.activate()
       } else if (e.key === ' ' && flow.active) {
@@ -137,10 +128,10 @@ export function Canvas() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selected, select, expand, collapse, fitView, doc, api, pad, tilt, setTilt])
+  }, [selected, select, expand, collapse, fitView, doc, api, pad])
 
   return (
-    <div className={`mm-canvas ${tilt ? 'is-tilt' : ''}`} ref={rootRef}>
+    <div className="mm-canvas">
       <ReactFlow
         nodes={nodes}
         edges={view.edges}
