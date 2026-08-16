@@ -16,6 +16,8 @@ export function TopBar() {
   const flowActive = useFlowStore((s) => s.active)
   const activateFlow = useFlowStore((s) => s.activate)
   const deactivateFlow = useFlowStore((s) => s.deactivate)
+  const tilt = useStore((s) => s.tilt)
+  const setTilt = useStore((s) => s.setTilt)
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem('mm-theme') as Theme) || 'system',
   )
@@ -74,6 +76,14 @@ export function TopBar() {
               ▶ flow
             </button>
           )}
+          <button
+            className={`mm-btn ${tilt ? 'is-on' : ''}`}
+            onClick={() => setTilt(!tilt)}
+            title="2.5D tilt (T)"
+            aria-pressed={tilt}
+          >
+            2.5D
+          </button>
           <button className="mm-btn" onClick={share}>
             {copied ? 'copied ✓' : 'share'}
           </button>

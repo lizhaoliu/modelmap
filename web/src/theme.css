@@ -277,6 +277,47 @@ kbd {
 .react-flow__attribution { background: transparent; color: var(--muted); }
 .react-flow__attribution a { color: var(--muted); }
 
+/* ---------- 2.5D tilt (prototype) ----------
+   The board tilts back under a screen-fixed perspective; every module rises
+   by its nesting depth (translate Z, scaled with zoom so it reads as one
+   scene). Edges stay on the floor; elevated modules cast soft shadows. */
+.mm-canvas.is-tilt .react-flow { perspective: 1800px; perspective-origin: 50% 35%; }
+.mm-canvas.is-tilt .react-flow__renderer,
+.mm-canvas.is-tilt .react-flow__background {
+  transform: rotateX(30deg) scale(0.92);
+  transform-origin: 50% 55%;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.mm-canvas .react-flow__renderer, .mm-canvas .react-flow__background {
+  transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.mm-canvas.is-tilt .react-flow__pane,
+.mm-canvas.is-tilt .react-flow__viewport,
+.mm-canvas.is-tilt .react-flow__nodes,
+.mm-canvas.is-tilt .react-flow__viewport-portal { transform-style: preserve-3d; }
+
+/* rise by depth: `translate` composes with React Flow's inline transform */
+.mm-canvas.is-tilt .react-flow__node {
+  translate: 0 0 calc(var(--mm-depth, 1) * 11px * var(--mm-zoom, 1));
+  border-radius: 10px;
+  box-shadow: 0 calc(var(--mm-depth, 1) * 3px * var(--mm-zoom, 1))
+                calc(var(--mm-depth, 1) * 9px * var(--mm-zoom, 1) + 3px)
+                color-mix(in srgb, var(--ink) 22%, transparent);
+  transition: translate 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+/* top-level modules float one step above the floor; edges join them there */
+.mm-canvas.is-tilt .react-flow__edges { translate: 0 0 calc(11px * var(--mm-zoom, 1)); }
+.mm-canvas.is-tilt .react-flow__edge-path { stroke-opacity: 0.6; }
+.mm-canvas.is-tilt .mm-flow-pulse {
+  translate: 0 0 calc(var(--mm-depth, 1) * 11px * var(--mm-zoom, 1) + 6px);
+}
+.mm-canvas.is-tilt .mm-bg { color: color-mix(in srgb, var(--line) 70%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .mm-canvas .react-flow__renderer, .mm-canvas .react-flow__background,
+  .mm-canvas.is-tilt .react-flow__node { transition: none; }
+}
+
 /* ---------- inspector ---------- */
 .mm-inspector {
   width: 300px; flex: none; overflow-y: auto;
@@ -315,7 +356,7 @@ kbd {
 .mm-hint { color: var(--muted); font-size: 0.8rem; margin-top: 20px; line-height: 1.7; }
 
 /* ---------- flow mode ---------- */
-.mm-btn-flow.is-on { color: var(--flow-text); border-color: var(--flow); background: var(--flow-wash); }
+.mm-btn.is-on { color: var(--flow-text); border-color: var(--flow); background: var(--flow-wash); }
 .mm-btn:disabled { opacity: 0.45; cursor: default; }
 
 .mm-flow-pulse {

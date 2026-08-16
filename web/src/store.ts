@@ -13,6 +13,9 @@ interface State {
   /** container just opened — the canvas frames it once, then clears this */
   lastExpanded: string | null
   clearLastExpanded: () => void
+  /** 2.5D: perspective tilt + per-depth elevation (prototype, design M5 discussion) */
+  tilt: boolean
+  setTilt: (on: boolean) => void
   loadModel: (id: string, opts?: { push?: boolean }) => Promise<void>
   toggleExpand: (id: string) => void
   expand: (id: string) => void
@@ -44,6 +47,11 @@ export const useStore = create<State>((set, get) => ({
   selected: null,
   lastExpanded: null,
   clearLastExpanded: () => set({ lastExpanded: null }),
+  tilt: localStorage.getItem('mm-tilt') === '1',
+  setTilt: (on) => {
+    localStorage.setItem('mm-tilt', on ? '1' : '0')
+    set({ tilt: on })
+  },
 
   async loadModel(id, opts) {
     if (get().loading === id) return

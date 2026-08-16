@@ -7,6 +7,8 @@ export interface Rect {
   y: number
   w: number
   h: number
+  /** nesting depth (2.5D elevation of the pulse) */
+  d?: number
 }
 
 export interface FlowApi {
@@ -82,6 +84,8 @@ export function useFlowEngine(
       }
       if (pos && pulseRef.current) {
         pulseRef.current.style.transform = `translate(${pos.x}px, ${pos.y}px)`
+        const d = posRef.current[b.node]?.d
+        if (d != null) pulseRef.current.style.setProperty('--mm-depth', String(d))
       }
     }
 

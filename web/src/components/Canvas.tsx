@@ -6,6 +6,7 @@ import {
   MiniMap,
   ReactFlow,
   ViewportPortal,
+  useOnViewportChange,
   useReactFlow,
   type Edge,
 } from '@xyflow/react'
@@ -13,6 +14,7 @@ import { buildFlowScript } from '../flow/beats'
 import { useFlowEngine } from '../flow/engine'
 import { useFlowStore } from '../flow/flowStore'
 import { layoutGraph, type MMNode, type Rect } from '../graph/layout'
+import { edgeTypes } from '../graph/edges'
 import { nodeTypes } from '../graph/nodes'
 import { useStore } from '../store'
 import type { Kind } from '../types'
@@ -48,7 +50,15 @@ export function Canvas() {
   const collapse = useStore((s) => s.collapse)
   const lastExpanded = useStore((s) => s.lastExpanded)
   const clearLastExpanded = useStore((s) => s.clearLastExpanded)
+  const tilt = useStore((s) => s.tilt)
+  const setTilt = useStore((s) => s.setTilt)
   const { fitView, fitBounds } = useReactFlow()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  // elevation and perspective scale with zoom so the 3D reads as one scene
+  useOnViewportChange({
+    onChange: (v) => rootRef.current?.style.setProperty('--mm-zoom', String(v.zoom)),
+  })
+  const pad = tilt ? 0.28 : 0.12
 
   const [view, setView] = useState<View>({ nodes: [], edges: [], positions: {} })
   const lastModel = useRef<string | null>(null)
@@ -69,12 +79,12 @@ export function Canvas() {
       setView(v)
       if (lastModel.current !== doc.model_id) {
         lastModel.current = doc.model_id
-        requestAnimationFrame(() => fitView({ padding: 0.12 }))
+        requestAnimationFrame(() => fitView({ padding: pad }))
       } else if (lastExpanded && v.positions[lastExpanded]) {
         // frame the container that just opened so its extent is unmistakable
         const r = v.positions[lastExpanded]
         requestAnimationFrame(() => {
-          fitBounds({ x: r.x, y: r.y, width: r.w, height: r.h }, { padding: 0.25, duration: 350 })
+          fitBounds({ x: r.x, y: r.y, width: r.w, height: r.h }, { padding: pad + 0.1, duration: 350 })
           clearLastExpanded()
         })
       }
@@ -82,7 +92,7 @@ export function Canvas() {
     return () => {
       alive = false
     }
-  }, [doc, index, expanded, fitView, fitBounds, lastExpanded, clearLastExpanded])
+  }, [doc, index, expanded, fitView, fitBounds, lastExpanded, clearLastExpanded, pad])
 
   const nodes = useMemo(() => {
     // ancestors of the selection get a strengthened border — the trail
@@ -113,7 +123,8 @@ export function Canvas() {
       if (e.key === 'Escape') {
         if (flow.active) flow.deactivate()
         else select(null)
-      } else if (e.key === '0') fitView({ padding: 0.12, duration: 250 })
+      } else if (e.key === '0') fitView({ padding: pad, duration: 250 })
+      else if (e.key === 't') setTilt(!tilt)
       else if (e.key === 'f' && doc?.trace.length) {
         flow.active ? flow.deactivate() : flow.activate()
       } else if (e.key === ' ' && flow.active) {
@@ -126,14 +137,15 @@ export function Canvas() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selected, select, expand, collapse, fitView, doc, api])
+  }, [selected, select, expand, collapse, fitView, doc, api, pad, tilt, setTilt])
 
   return (
-    <div className="mm-canvas">
+    <div className={`mm-canvas ${tilt ? 'is-tilt' : ''}`} ref={rootRef}>
       <ReactFlow
         nodes={nodes}
         edges={view.edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={(_, n) => select(n.id)}
         onPaneClick={() => select(null)}
         minZoom={0.08}
