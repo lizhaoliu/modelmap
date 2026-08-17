@@ -40,7 +40,36 @@ interface View {
   positions: Record<string, Rect>
 }
 
-export function Canvas() {
+/** Keeps several canvases' viewports in lockstep (compare mode). */
+export class LinkGroup {
+  private setters = new Map<string, (v: { x: number; y: number; zoom: number }) => void>()
+  private busy = false
+  register(id: string, set: (v: { x: number; y: number; zoom: number }) => void): () => void {
+    this.setters.set(id, set)
+    return () => {
+      this.setters.delete(id)
+    }
+  }
+  broadcast(from: string, v: { x: number; y: number; zoom: number }) {
+    if (this.busy) return
+    this.busy = true
+    try {
+      for (const [id, set] of this.setters) if (id !== from) set(v)
+    } finally {
+      this.busy = false
+    }
+  }
+}
+
+export function Canvas({
+  link,
+  flowEnabled = true,
+  costs = true,
+}: {
+  link?: { group: LinkGroup; id: string }
+  flowEnabled?: boolean
+  costs?: boolean
+} = {}) {
   const doc = useStore((s) => s.doc)
   const index = useStore((s) => s.index)
   const expanded = useStore((s) => s.expanded)
@@ -50,11 +79,12 @@ export function Canvas() {
   const collapse = useStore((s) => s.collapse)
   const lastExpanded = useStore((s) => s.lastExpanded)
   const clearLastExpanded = useStore((s) => s.clearLastExpanded)
-  const { fitView, fitBounds } = useReactFlow()
+  const { fitView, fitBounds, setViewport } = useReactFlow()
   const pad = 0.12
+  useEffect(() => (link ? link.group.register(link.id, (v) => setViewport(v)) : undefined), [link, setViewport])
 
   const recompute = useCostStore((s) => s.recompute)
-  useEffect(() => recompute(doc, index), [doc, index, recompute])
+  useEffect(() => { if (costs) recompute(doc, index) }, [doc, index, recompute, costs])
   const [view, setView] = useState<View>({ nodes: [], edges: [], positions: {} })
   const lastModel = useRef<string | null>(null)
   const pulseRef = useRef<HTMLDivElement | null>(null)
@@ -119,7 +149,7 @@ export function Canvas() {
         if (flow.active) flow.deactivate()
         else select(null)
       } else if (e.key === '0') fitView({ padding: pad, duration: 250 })
-      else if (e.key === 'f' && doc?.trace.length) {
+      else if (e.key === 'f' && flowEnabled && doc?.trace.length) {
         flow.active ? flow.deactivate() : flow.activate()
       } else if (e.key === ' ' && flow.active) {
         e.preventDefault()
@@ -131,7 +161,7 @@ export function Canvas() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selected, select, expand, collapse, fitView, doc, api, pad])
+  }, [selected, select, expand, collapse, fitView, doc, api, pad, flowEnabled])
 
   return (
     <div className="mm-canvas">
@@ -142,6 +172,7 @@ export function Canvas() {
         edgeTypes={edgeTypes}
         onNodeClick={(_, n) => select(n.id)}
         onPaneClick={() => select(null)}
+        onMove={link ? (_, v) => link.group.broadcast(link.id, v) : undefined}
         minZoom={0.08}
         maxZoom={2.5}
         fitView
@@ -162,14 +193,14 @@ export function Canvas() {
           nodeStrokeWidth={0}
         />
         <Controls showInteractive={false} className="mm-controls" />
-        {flowActive && (
+        {flowActive && flowEnabled && (
           <ViewportPortal>
             <div className="mm-flow-pulse" ref={pulseRef} aria-hidden="true" />
           </ViewportPortal>
         )}
       </ReactFlow>
       <Breadcrumb />
-      <FlowBar script={script} api={api} />
+      {flowEnabled && <FlowBar script={script} api={api} />}
     </div>
   )
 }

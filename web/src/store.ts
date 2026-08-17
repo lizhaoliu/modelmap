@@ -1,8 +1,11 @@
-import { create } from 'zustand'
+import { createContext, useContext } from 'react'
+import { create, type StoreApi, type UseBoundStore } from 'zustand'
 import { fetchGraph } from './api'
 import { buildIndex, type GraphDoc, type GraphIndex } from './types'
 
-interface State {
+export type DiffStatus = 'same' | 'changed' | 'added' | 'removed' | 'inside'
+
+export interface State {
   doc: GraphDoc | null
   index: GraphIndex | null
   loading: string | null // model id being loaded
@@ -16,6 +19,11 @@ interface State {
   /** transient message (render-budget collapses, copied links, …) */
   toast: string | null
   setToast: (msg: string | null) => void
+  /** compare mode: per-node diff status for this side (set by the compare view) */
+  diff: Map<string, DiffStatus> | null
+  setDiff: (d: Map<string, DiffStatus> | null) => void
+  /** compare mode: apply an expansion set computed elsewhere (linked expansion) */
+  setExpanded: (e: Set<string>) => void
   loadModel: (id: string, opts?: { push?: boolean }) => Promise<void>
   toggleExpand: (id: string) => void
   expand: (id: string) => void
@@ -91,7 +99,15 @@ function enforceBudget(state: State, expanded: Set<string>, opened: string | nul
   return expanded
 }
 
-export const useStore = create<State>((set, get) => ({
+export interface StoreOptions {
+  /** write ?sel= and push /m/{id} history — only the primary store should */
+  syncUrl: boolean
+}
+
+export type GraphStore = UseBoundStore<StoreApi<State>>
+
+export function createGraphStore(opts: StoreOptions): GraphStore {
+  return create<State>((set, get) => ({
   doc: null,
   index: null,
   loading: null,
@@ -107,7 +123,7 @@ export const useStore = create<State>((set, get) => ({
     if (msg) setTimeout(() => get().toast === msg && set({ toast: null }), 3200)
   },
 
-  async loadModel(id, opts) {
+  async loadModel(id, loadOpts) {
     if (get().loading === id) return
     set({ loading: id, error: null, errorModel: null })
     try {
@@ -122,10 +138,10 @@ export const useStore = create<State>((set, get) => ({
         expanded: defaultExpanded(index, doc),
         selected: null,
       })
-      if (opts?.push !== false) {
+      if (opts.syncUrl && loadOpts?.push !== false) {
         history.pushState({}, '', `/m/${id}`)
       }
-      document.title = `${id.split('/').pop()} · modelmap`
+      if (opts.syncUrl) document.title = `${id.split('/').pop()} · modelmap`
     } catch (e) {
       set({ loading: null, error: e instanceof Error ? e.message : String(e), errorModel: id })
     }
@@ -175,9 +191,26 @@ export const useStore = create<State>((set, get) => ({
 
   select(id) {
     set({ selected: id })
+    if (!opts.syncUrl) return
     const url = new URL(location.href)
     if (id) url.searchParams.set('sel', id)
     else url.searchParams.delete('sel')
     history.replaceState({}, '', url)
   },
-}))
+
+  diff: null,
+  setDiff: (diff) => set({ diff }),
+  setExpanded: (expanded) => set({ expanded, lastExpanded: null }),
+  }))
+}
+
+/** The primary store (the /m/{id} view). Compare mode creates two more. */
+export const primaryStore = createGraphStore({ syncUrl: true })
+export const StoreContext = createContext<GraphStore>(primaryStore)
+
+/** Components read whichever store their subtree is bound to. */
+export function useStore<T>(selector: (s: State) => T): T {
+  const store = useContext(StoreContext)
+  return store(selector)
+}
+useStore.getState = () => primaryStore.getState()

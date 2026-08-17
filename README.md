@@ -46,6 +46,11 @@ docker compose up --build
   block and the pulse walks its internals. **Micro-views** show a beat's inner choreography —
   a block's norm → attention → ⊕ → norm → MLP → ⊕, attention's Q/K/V → scores → softmax → merge,
   a gated MLP, an MoE router — all filled from the model's own config and trace.
+- **Compare** — `/compare/A...B` (or “compare…” in the top bar): two models aligned by path, then by
+  role, with linked pan/zoom/expansion/selection; unchanged modules dim, changed ones outline amber,
+  additions/removals get `+`/`−`; a two-column diff inspector and a summary strip (params, layers,
+  heads, KV heads, hidden, ffn, vocab, context, compute/token, KV/token). Base vs fine-tune reports
+  no structural change; Qwen2.5-7B vs Qwen3-8B calls out q/k norms, dropped biases, ffn, layers.
 - **Any public repo.** Text LLMs (dense and MoE), encoder-decoders (T5/BART), speech (Whisper),
   BERT, ViT, vision-language and audio-language (the encoder tower and
   its projector are traced too — on the meta device when possible, otherwise via a depth-1 CPU
@@ -63,7 +68,7 @@ docker compose up --build
 - [x] M3 — Flow mode with captions
 - [x] M4 — micro-views, gallery, treemap, `uvx` packaging, hardened deploy-ready container
 - [x] M5 — Cost lens: compute / memory / KV analytics with a what-if bar (client-side, from traced shapes)
-- [ ] **M6 — Compare** *(next)*
+- [x] M6 — Compare: two models side by side, aligned by path then role, differences first
 - [x] Deployed for evaluation on Google Cloud Run (free tier); see DEPLOY.md
 
 ## Development

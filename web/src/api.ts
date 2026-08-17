@@ -59,3 +59,14 @@ export async function fetchGallery(): Promise<GalleryEntry[]> {
   if (!res.ok) return []
   return res.json()
 }
+
+/** Client-side navigation to /compare/{A}...{B} (no reload). */
+export function gotoCompare(a: string, b: string) {
+  history.pushState({}, '', `/compare/${a}...${b}`)
+  window.dispatchEvent(new Event('mm:navigate'))
+}
+export function gotoModel(id: string) {
+  history.pushState({}, '', `/m/${id}`)
+  window.dispatchEvent(new Event('mm:navigate'))
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}

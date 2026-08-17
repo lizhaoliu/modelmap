@@ -3,7 +3,7 @@ import { searchModels, type SearchHit } from '../api'
 import { fmtCount } from '../fmt'
 import { useStore } from '../store'
 
-export function ModelSearch({ big = false }: { big?: boolean }) {
+export function ModelSearch({ big = false, onPick, placeholder }: { big?: boolean; onPick?: (id: string) => void; placeholder?: string }) {
   const loadModel = useStore((s) => s.loadModel)
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
@@ -51,7 +51,8 @@ export function ModelSearch({ big = false }: { big?: boolean }) {
     setOpen(false)
     setQ('')
     inputRef.current?.blur()
-    void loadModel(id)
+    if (onPick) onPick(id)
+    else void loadModel(id)
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -75,7 +76,7 @@ export function ModelSearch({ big = false }: { big?: boolean }) {
       <input
         ref={inputRef}
         value={q}
-        placeholder={big ? 'Search Hugging Face models — try "qwen3"' : 'Search models'}
+        placeholder={placeholder ?? (big ? 'Search Hugging Face models — try "qwen3"' : 'Search models')}
         spellCheck={false}
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => hits.length && setOpen(true)}

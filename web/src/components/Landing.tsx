@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchGallery, type GalleryEntry } from '../api'
+import { fetchGallery, gotoCompare, type GalleryEntry } from '../api'
 import { fmtParams } from '../fmt'
 import { useStore } from '../store'
 import { ModelSearch } from './ModelSearch'
@@ -7,6 +7,7 @@ import { ModelSearch } from './ModelSearch'
 export function Landing() {
   const loadModel = useStore((s) => s.loadModel)
   const [gallery, setGallery] = useState<GalleryEntry[] | null>(null)
+  const [cmpA, setCmpA] = useState('')
   useEffect(() => {
     void fetchGallery().then(setGallery)
   }, [])
@@ -54,6 +55,13 @@ export function Landing() {
             )}
           </article>
         ))}
+      </section>
+      <section className="mm-cmp-entry" aria-label="Compare two models">
+        <span className="mm-cmp-entry-label">compare</span>
+        <ModelSearch placeholder={cmpA || 'first model'} onPick={(id) => setCmpA(id)} />
+        <span className="mm-vs">vs</span>
+        <ModelSearch placeholder="second model" onPick={(id) => cmpA && gotoCompare(cmpA, id)} />
+        <span className="mm-cmp-entry-hint">e.g. <button className="mm-link" onClick={() => gotoCompare('Qwen/Qwen2.5-7B', 'Qwen/Qwen3-8B')}>Qwen2.5-7B vs Qwen3-8B</button></span>
       </section>
       <p className="mm-landing-foot">
         Structure comes from a meta-device instantiation; shapes come from a traced fake forward pass. Any public repo works — gated ones after you add a token.

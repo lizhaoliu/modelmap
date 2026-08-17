@@ -44,6 +44,7 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
   const expandMany = useStore((s) => s.expandMany)
   const { g, repeat, stackOf, hasChildren, dir } = data
   const { badge, heat } = useLens(g)
+  const diff = useStore((s) => s.diff?.get(g.id))
   const cls = [
     'mm-node',
     `kind-${g.kind}`,
@@ -51,6 +52,7 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
     stackOf ? 'is-stack' : '',
     hasChildren ? 'is-openable' : '',
     heat ? 'has-heat' : '',
+    diff ? `diff-${diff}` : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -65,6 +67,7 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
     <div className={cls} onDoubleClick={hasChildren ? open : undefined} style={{ '--heat': heat } as React.CSSProperties}>
       {handles(dir)}
       <div className="mm-row">
+        {(diff === 'added' || diff === 'removed') && <span className="mm-diffchip">{diff === 'added' ? '+' : '−'}</span>}
         <span className="mm-name">{leafName(g.id)}</span>
         {stackOf && (
           <button
@@ -109,12 +112,14 @@ export function ContainerNode({ data, selected }: NodeProps<MMNode>) {
   const toggleExpand = useStore((s) => s.toggleExpand)
   const { g, repeat, stackOf, dir } = data
   const { badge, heat } = useLens(g)
+  const diff = useStore((s) => s.diff?.get(g.id))
   const cls = [
     'mm-container',
     `kind-${g.kind}`,
     g.depth % 2 ? 'lvl-odd' : 'lvl-even', // alternating surfaces keep nesting legible
     selected ? 'is-selected' : '',
     heat ? 'has-heat' : '',
+    diff ? `diff-${diff}` : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -132,6 +137,7 @@ export function ContainerNode({ data, selected }: NodeProps<MMNode>) {
         >
           −
         </button>
+        {(diff === 'added' || diff === 'removed') && <span className="mm-diffchip">{diff === 'added' ? '+' : '−'}</span>}
         <span className="mm-name">{leafName(g.id)}</span>
         <span className="mm-cls">{g.cls === '?' ? '' : g.cls}</span>
         {repeat && (

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { getToken } from '../api'
+import { getToken, gotoCompare } from '../api'
+import { useCompareStore } from '../compare/compareStore'
+import { urlCompare } from '../App'
 import { useFlowStore } from '../flow/flowStore'
 import { fmtParams } from '../fmt'
 import { useStore } from '../store'
@@ -26,6 +28,9 @@ export function TopBar() {
   const [copied, setCopied] = useState(false)
   const [tokenOpen, setTokenOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [cmpOpen, setCmpOpen] = useState(false)
+  const cmpIds = useCompareStore((s) => s.ids)
+  const inCompare = urlCompare() != null && cmpIds != null
   const setToast = useStore((s) => s.setToast)
 
   useEffect(() => applyTheme(theme), [theme])
@@ -69,14 +74,30 @@ export function TopBar() {
       >
         modelmap
       </a>
-      {doc && (
+      {inCompare && cmpIds && (
+        <span className="mm-model-chip">{cmpIds[0]} <i className="mm-vs">vs</i> {cmpIds[1]}</span>
+      )}
+      {!inCompare && doc && (
         <span className="mm-model-chip" title={`revision ${doc.revision}`}>
           {doc.model_id}
         </span>
       )}
-      <div className="mm-topbar-center">{doc && <ModelSearch />}</div>
-      {doc && <LensBar />}
-      {doc && (
+      <div className="mm-topbar-center">{!inCompare && doc && <ModelSearch />}</div>
+      {!inCompare && doc && <LensBar />}
+      {!inCompare && doc && (
+        <span className="mm-topbar-rel">
+          <button className={`mm-btn ${cmpOpen ? 'is-on' : ''}`} onClick={() => setCmpOpen((v) => !v)} title="Compare this model with another">
+            compare…
+          </button>
+          {cmpOpen && (
+            <div className="mm-pop mm-cmp-pop">
+              <label>Compare <b>{doc.model_id}</b> with</label>
+              <ModelSearch placeholder="other model id" onPick={(id) => { setCmpOpen(false); gotoCompare(doc.model_id, id) }} />
+            </div>
+          )}
+        </span>
+      )}
+      {!inCompare && doc && (
         <>
           <span className={`mm-fidelity is-${doc.fidelity}`} title={doc.notes.join('\n') || 'traced fake forward completed'}>
             {doc.fidelity}
