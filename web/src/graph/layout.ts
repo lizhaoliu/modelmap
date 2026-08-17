@@ -30,6 +30,20 @@ const BASE_OPTS = {
   'elk.spacing.nodeNode': '24',
 }
 
+function mkEdge(id: string, source: string, target: string, aux: boolean): Edge {
+  return {
+    id,
+    type: 'mm',
+    source,
+    target,
+    data: { aux },
+    style: aux
+      ? { stroke: EDGE_COLOR, strokeWidth: 1.1, strokeDasharray: '4 4', opacity: 0.8 }
+      : { stroke: EDGE_COLOR, strokeWidth: 1.2 },
+    markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR },
+  }
+}
+
 /** Top levels read left-to-right like the design-doc hero; block internals
  *  stack top-to-bottom so expanded models stay compact. */
 function dirFor(depth: number): 'RIGHT' | 'DOWN' {
@@ -73,7 +87,7 @@ export async function layoutGraph(
   index: GraphIndex,
   expanded: Set<string>,
 ): Promise<{ nodes: MMNode[]; edges: Edge[]; positions: Record<string, Rect> }> {
-  const edgesByParent = new Map<string, { src: string; dst: string }[]>()
+  const edgesByParent = new Map<string, { src: string; dst: string; kind?: 'flow' | 'aux' }[]>()
   for (const e of doc.edges) {
     const parent = index.byId.get(e.src)?.parent
     if (parent == null) continue
@@ -82,6 +96,7 @@ export async function layoutGraph(
     edgesByParent.set(parent, list)
   }
 
+  const auxIds = new Set(doc.edges.filter((e) => e.kind === 'aux').map((e) => `${e.src}→${e.dst}`))
   const elkEdgesFor = (parentId: string) =>
     (edgesByParent.get(parentId) ?? []).map((e) => ({
       id: `${e.src}→${e.dst}`,
@@ -162,30 +177,12 @@ export async function layoutGraph(
         },
         draggable: false,
       })
-      for (const e of s.edges ?? []) {
-        edges.push({
-          id: e.id,
-          type: 'mm',
-          source: e.sources[0],
-          target: e.targets[0],
-          style: { stroke: EDGE_COLOR, strokeWidth: 1.2 },
-          markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR },
-        })
-      }
+      for (const e of s.edges ?? []) edges.push(mkEdge(e.id, e.sources[0], e.targets[0], auxIds.has(e.id)))
       walk(kids, s.id, childDir, absX, absY)
     }
   }
   walk(laid.children ?? [], undefined, 'h')
-  for (const e of laid.edges ?? []) {
-    edges.push({
-      id: e.id,
-      type: 'mm',
-      source: e.sources[0],
-      target: e.targets[0],
-      style: { stroke: EDGE_COLOR, strokeWidth: 1.2 },
-      markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR },
-    })
-  }
+  for (const e of laid.edges ?? []) edges.push(mkEdge(e.id, e.sources[0], e.targets[0], auxIds.has(e.id)))
 
   return { nodes, edges, positions }
 }

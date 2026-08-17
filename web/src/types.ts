@@ -31,6 +31,8 @@ export interface Repeat {
 export interface GEdge {
   src: string
   dst: string
+  /** "flow" (main path, default) or "aux" (side computation feeding its consumer) */
+  kind?: 'flow' | 'aux'
 }
 
 export interface TraceStep {

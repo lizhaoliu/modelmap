@@ -27,7 +27,7 @@ export function LensBar() {
       </div>
       <span className="mm-topbar-rel">
         <button className="mm-btn mm-lens-assume" onClick={() => setOpen((v) => !v)} title="Assumptions behind the cost numbers" aria-expanded={open}>
-          T {fmtInt(a.T)} · B {a.B} · {a.dtypeLabel}
+          T {fmtInt(a.T)}{a.B > 1 ? ` · B ${a.B}` : ''} · {a.dtypeLabel}
           {report && lens === 'kv' && ` · ${fmtBytes(report.root.kvPerToken * a.T * a.B)} KV`}
         </button>
         {open && <WhatIf onClose={() => setOpen(false)} />}

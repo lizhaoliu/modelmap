@@ -87,7 +87,7 @@ export function TopBar() {
       {!inCompare && doc && (
         <span className="mm-topbar-rel">
           <button className={`mm-btn ${cmpOpen ? 'is-on' : ''}`} onClick={() => setCmpOpen((v) => !v)} title="Compare this model with another">
-            compare…
+            vs…
           </button>
           {cmpOpen && (
             <div className="mm-pop mm-cmp-pop">

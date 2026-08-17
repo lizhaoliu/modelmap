@@ -81,7 +81,7 @@ def extract_graph(
     steps, fidelity, trace_notes = trace.run_trace(model, config, seq_len=seq_len)
     notes.extend(trace_notes)
     nodes, repeats = collapse.collapse_repeats(nodes)
-    edges = _build_edges(nodes)
+    edges = _build_edges(nodes, steps)
     _apply_dtypes(model_id, revision, token, config, nodes, notes)
 
     archs = getattr(config, "architectures", None) or []
@@ -205,21 +205,49 @@ def _classify(name: str, module: nn.Module) -> str:
     return "container" if has_children else "module"
 
 
-def _build_edges(nodes: list[Node]) -> list[Edge]:
-    """Sibling chains in registration order.
+_AUX = re.compile(r"(rotary|rope|pos_emb|position_embed|positional)", re.I)
 
-    An approximation of dataflow (parallel branches like q/k/v read as
-    sequential); the client refines rendering per kind, and the trace carries
-    the true order. Revisit in M3 if templates aren't enough.
-    """
+
+def _is_aux(n: Node) -> bool:
+    """A parameter-free side computation (rotary / positional phases) whose
+    output feeds other modules but which the residual stream never passes
+    through — drawn as a dashed input to its consumer, not a chain link."""
+    leaf = n.id.rsplit(".", 1)[-1]
+    return n.params == 0 and n.kind in ("module", "container") and bool(_AUX.search(n.cls + " " + leaf))
+
+
+def _build_edges(nodes: list[Node], steps: list) -> list[Edge]:
+    """Sibling chains in *execution* order (from the trace), with side
+    computations attached as aux edges. Registration order is only the
+    fallback for modules the trace never saw (or weights views)."""
+    # first execution step of every module, propagated to its ancestors
+    first: dict[str, int] = {}
+    for st in steps:
+        parts = st.node.split(".")
+        for i in range(1, len(parts) + 1):
+            a = ".".join(parts[:i])
+            if a not in first:
+                first[a] = st.step
+
     kids: dict[str, list[Node]] = defaultdict(list)
     for n in nodes:
         if n.parent is not None:
             kids[n.parent].append(n)
-    edges = []
+    edges: list[Edge] = []
+    inf = float("inf")
     for ks in kids.values():
-        ks.sort(key=lambda n: n.order)
-        edges.extend(Edge(src=a.id, dst=b.id) for a, b in zip(ks, ks[1:]))
+        ks.sort(key=lambda n: (first.get(n.id, inf), n.order))
+        main = [n for n in ks if not _is_aux(n)]
+        aux = [n for n in ks if _is_aux(n)]
+        edges.extend(Edge(src=a.id, dst=b.id) for a, b in zip(main, main[1:]))
+        for x in aux:
+            # consumer: the first main sibling that runs after the side computation
+            fx = first.get(x.id, inf)
+            consumer = next((m for m in main if first.get(m.id, inf) > fx), None)
+            if consumer is None and main:
+                consumer = main[-1] if fx == inf else main[0]
+            if consumer is not None:
+                edges.append(Edge(src=x.id, dst=consumer.id, kind="aux"))
     return edges
 
 

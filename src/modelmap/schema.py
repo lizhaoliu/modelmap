@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = 2  # 2: node.attrs, MoE/norm classification fix (cache key includes this)
+SCHEMA_VERSION = 3  # 3: edges in execution order with aux (side-input) edges; 2: attrs
 
 # node kinds drive color, icon, and collapse defaults in the client
 KINDS = (
@@ -47,6 +47,9 @@ class Repeat:
 class Edge:
     src: str
     dst: str
+    # "flow": the main path between siblings in execution order
+    # "aux": a side computation (rotary / position embeddings) feeding its consumer
+    kind: str = "flow"
 
 
 @dataclass

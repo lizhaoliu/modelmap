@@ -98,7 +98,7 @@ kbd {
 .mm-main { position: relative; display: flex; flex: 1; min-height: 0; }
 
 .mm-topbar {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: 10px;
   height: 52px; padding: 0 16px;
   background: var(--card);
   border-bottom: 1px solid var(--line-soft);
@@ -117,7 +117,7 @@ kbd {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 32ch;
 }
 .mm-model-chip:has(.mm-vs) { max-width: 64ch; }
-.mm-topbar-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
+.mm-topbar-center { flex: 1; display: flex; justify-content: center; min-width: 200px; }
 .mm-total-params { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
 .mm-fidelity {
   font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
@@ -421,8 +421,8 @@ kbd {
 .mm-lens { display: flex; align-items: center; gap: 8px; }
 .mm-lens-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
 .mm-lens-btn {
-  font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--muted);
-  padding: 4px 10px; border-right: 1px solid var(--line-soft);
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted);
+  padding: 4px 8px; border-right: 1px solid var(--line-soft);
 }
 .mm-lens-btn:last-child { border-right: none; }
 .mm-lens-btn:hover { color: var(--ink); }
