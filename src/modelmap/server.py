@@ -77,6 +77,15 @@ def _worker_init(mem_mb: int, timeout_s: int) -> None:
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # die with the parent: a SIGKILLed server must not leave 350 MB workers behind
+    try:
+        import ctypes
+        import signal
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        libc.prctl(1, signal.SIGKILL)  # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):  # non-Linux
+        pass
     try:
         import resource
 
