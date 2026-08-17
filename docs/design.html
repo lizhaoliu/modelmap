@@ -313,7 +313,7 @@ footer {
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">Design doc · v1.1 · approved 2026-08-14 · built through M4</span>
+  <span class="eyebrow">Design doc · v1.2 · M1–M4 shipped · M5–M6 designed 2026-08-17</span>
   <h1>modelmap</h1>
   <p class="tagline">Paste a Hugging Face model id. Get a <strong>living map of the network</strong> — explorable down to every projection, animated so you can watch a token flow from embedding to logits.</p>
 
@@ -373,7 +373,7 @@ footer {
 
   <div class="meta-row">
     <span>project <b>modelmap</b></span>
-    <span>status <b>M1–M4 shipped · not yet deployed</b></span>
+    <span>status <b>M1–M4 shipped &amp; deployed · M5–M6 in design review</b></span>
     <span>author <b>lizhaoliu + Claude</b></span>
     <span>repo <b>~/repo/modelmap</b></span>
   </div>
@@ -394,7 +394,9 @@ footer {
     <li><a href="#perf"><span class="no">10</span>Performance &amp; scale</a></li>
     <li><a href="#risks"><span class="no">11</span>Risks &amp; mitigations</a></li>
     <li><a href="#milestones"><span class="no">12</span>Milestones</a></li>
-    <li><a href="#questions"><span class="no">13</span>Open questions</a></li>
+    <li><a href="#questions"><span class="no">13</span>Decisions</a></li>
+    <li><a href="#m5"><span class="no">14</span>M5 · Cost lens</a></li>
+    <li><a href="#m6"><span class="no">15</span>M6 · Compare</a></li>
   </ul>
 </section>
 
@@ -782,7 +784,7 @@ footer {
 
 <section id="milestones">
   <span class="eyebrow"><span class="no">12</span> Milestones</span>
-  <h2>Four increments, each independently demoable</h2>
+  <h2>Increments, each independently demoable</h2>
   <div class="milestones">
     <div class="ms"><div class="tag">M1</div><div>
       <h3>Extractor + CLI</h3>
@@ -804,6 +806,16 @@ footer {
       <p>Attention/MLP/MoE micro-views, param treemap, model gallery landing page, <code>uvx modelmap</code> packaging, hosted deployment with sandboxed extractor.</p>
       <p class="accept">accepts when <b>a stranger with a link needs no explanation</b> — gallery → model → flow replay without docs.</p>
     </div></div>
+    <div class="ms"><div class="tag">M5</div><div>
+      <h3>Cost lens</h3>
+      <p>Client-side compute / memory / KV analytics from traced shapes and module attributes; lens toggle re-encodes the map; what-if bar for T, batch, dtype (§14).</p>
+      <p class="accept">accepts when <b>Qwen3-235B-A22B reports ≈ 22 B active params/token</b> and dense compute matches 2 × params within 10 %.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M6</div><div>
+      <h3>Compare</h3>
+      <p>Two models side by side, aligned by path then role, differences first; linked canvases, diff inspector, summary strip (§15).</p>
+      <p class="accept">accepts when <b>Qwen2.5-7B vs Qwen3-8B calls out q/k norms, dropped biases, ffn and layer-count changes</b> and a base vs fine-tune reports no structural diff.</p>
+    </div></div>
   </div>
 </section>
 
@@ -819,8 +831,142 @@ footer {
   </ol>
 </section>
 
+<section id="m5">
+  <span class="eyebrow"><span class="no">14</span> M5 · Cost lens</span>
+  <h2>From structure to cost: where compute and memory go</h2>
+  <p>The map answers <em>what is this model made of</em>. The next question practitioners ask is <em>what does it cost to run</em> — and every input needed to answer it is already on the client: traced shapes, module attributes (<code>in_features</code>, kernel sizes), dtypes, and config (heads, KV heads, experts, top-k). So the Cost lens is a <strong>client-side derivation</strong>: no new server work, no new payload, and every number re-derives instantly when you change the assumptions.</p>
+
+  <h3>What is computed</h3>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Metric</th><th>Formula (per module)</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>Compute (MACs)</td><td>Linear / Conv1D: <code>tokens × in × out</code> · Conv: <code>out_elems × in_ch/groups × kernel</code> · attention core (analytic, per attention node): <code>2 × B × heads × T² × head_dim</code> · MoE: only <code>k / E</code> of expert MACs are active · elementwise ops (norms, activations): <code>elements</code>, shown as “other”</td><td>traced shapes, <code>attrs</code>, config</td></tr>
+      <tr><td>Parameter memory</td><td><code>params × bytes(dtype)</code>; MoE additionally reports <strong>active params per token</strong> = dense + <code>k/E</code> × experts</td><td>node params, dtype</td></tr>
+      <tr><td>Activation memory</td><td>output tensor bytes at the chosen T / B / dtype; per-module and the largest single activation (attention scores at long T)</td><td>traced shapes</td></tr>
+      <tr><td>KV cache</td><td>per token: <code>layers × 2 × kv_heads × head_dim × bytes</code> (MLA: <code>kv_lora_rank + rope_dim</code>; hybrid linear-attention layers excluded)</td><td>config</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Roll-ups: containers sum their children; repeat stacks multiply by count. Every metric is labeled an <em>estimate</em> with its formula one hover away — modelmap never claims kernel-level accuracy, only the analytic count that architecture papers quote.</p>
+
+  <h3>Scaling shapes: the what-if bar</h3>
+  <p>Traced shapes are for the dummy input (<code>B=1, T=7</code>). The dim labeler already knows which dims are <code>batch</code> and <code>seq</code> by value-matching; the what-if bar substitutes new values into those dims (attention scores <code>[B, h, T, T]</code> scale quadratically because both dims are <code>seq</code>) and re-derives everything. Controls: sequence length (log slider, 1 – 128k), batch, dtype. Assumptions sit in the URL, so a shared link carries them.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 250" role="img" aria-label="The Cost lens: a lens selector switches the treemap and node badges between params, compute, memory and KV cache; nodes gain an amber heat wash proportional to their share; a what-if bar sets sequence length, batch and dtype." style="color: var(--muted); min-width: 700px;">
+      <!-- lens selector -->
+      <rect x="20" y="20" width="330" height="30" rx="15" fill="var(--code-bg)" stroke="var(--line)" stroke-width="1"/>
+      <text x="48" y="40" font-family="'IBM Plex Mono',monospace" font-size="11" fill="currentColor">params</text>
+      <rect x="112" y="24" width="82" height="22" rx="11" fill="var(--flow-wash)" stroke="var(--flow)" stroke-width="1"/>
+      <text x="153" y="40" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11" fill="var(--flow-text)">compute</text>
+      <text x="228" y="40" font-family="'IBM Plex Mono',monospace" font-size="11" fill="currentColor">memory</text>
+      <text x="300" y="40" font-family="'IBM Plex Mono',monospace" font-size="11" fill="currentColor">kv</text>
+      <text x="370" y="40" font-family="'IBM Plex Mono',monospace" font-size="10" fill="currentColor">lens</text>
+      <!-- what-if bar -->
+      <rect x="470" y="20" width="410" height="30" rx="8" fill="var(--card)" stroke="var(--line-soft)" stroke-width="1"/>
+      <text x="484" y="40" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="currentColor">T</text>
+      <rect x="498" y="33" width="140" height="4" rx="2" fill="var(--code-bg)"/>
+      <rect x="498" y="33" width="88" height="4" rx="2" fill="var(--flow)"/>
+      <circle cx="586" cy="35" r="5" fill="var(--flow)"/>
+      <text x="646" y="40" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">4 096</text>
+      <text x="700" y="40" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="currentColor">B 1</text>
+      <text x="740" y="40" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="currentColor">bf16</text>
+      <text x="800" y="40" font-family="'IBM Plex Mono',monospace" font-size="10" fill="currentColor">what-if</text>
+      <!-- nodes with heat -->
+      <rect x="20" y="90" width="150" height="50" rx="8" fill="rgba(224,138,0,0.05)" stroke="var(--c-embed)" stroke-width="1.3"/>
+      <text x="32" y="110" font-family="'IBM Plex Mono',monospace" font-size="11" fill="var(--ink)">embed_tokens</text>
+      <text x="158" y="130" text-anchor="end" font-family="'IBM Plex Mono',monospace" font-size="10" fill="currentColor">0 MAC/tok</text>
+      <rect x="200" y="90" width="150" height="50" rx="8" fill="rgba(224,138,0,0.55)" stroke="var(--c-attn)" stroke-width="1.3"/>
+      <text x="212" y="110" font-family="'IBM Plex Mono',monospace" font-size="11" fill="var(--ink)">self_attn</text>
+      <text x="338" y="130" text-anchor="end" font-family="'IBM Plex Mono',monospace" font-size="10" fill="var(--ink)">67 M · 34%</text>
+      <rect x="380" y="90" width="150" height="50" rx="8" fill="rgba(224,138,0,0.9)" stroke="var(--c-mlp)" stroke-width="1.3"/>
+      <text x="392" y="110" font-family="'IBM Plex Mono',monospace" font-size="11" fill="var(--ink)">mlp</text>
+      <text x="518" y="130" text-anchor="end" font-family="'IBM Plex Mono',monospace" font-size="10" fill="var(--ink)">151 M · 62%</text>
+      <rect x="560" y="90" width="150" height="50" rx="8" fill="rgba(224,138,0,0.02)" stroke="var(--c-norm)" stroke-width="1.3"/>
+      <text x="572" y="110" font-family="'IBM Plex Mono',monospace" font-size="11" fill="var(--ink)">norm</text>
+      <text x="698" y="130" text-anchor="end" font-family="'IBM Plex Mono',monospace" font-size="10" fill="currentColor">8 K · &lt;0.1%</text>
+      <text x="740" y="120" font-family="'IBM Plex Mono',monospace" font-size="10" fill="currentColor">heat = share of the</text>
+      <text x="740" y="134" font-family="'IBM Plex Mono',monospace" font-size="10" fill="currentColor">active lens metric</text>
+      <!-- inspector rows -->
+      <rect x="20" y="170" width="860" height="60" rx="8" fill="var(--card)" stroke="var(--line-soft)" stroke-width="1"/>
+      <text x="34" y="192" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="currentColor">root · Qwen3-235B-A22B</text>
+      <text x="34" y="214" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">params 235 B · <tspan fill="var(--flow-text)">active / token 22 B</tspan> · compute 44 GMAC/token · KV cache 96 KB/token → 393 MB at T=4 096 · largest activation: scores 33 MB</text>
+    </svg>
+    <figcaption>Fig 5 — The Cost lens. One selector re-encodes the map (heat wash, node badges, treemap metric); a what-if bar re-derives everything from the traced shapes. Taxonomy border colors never change; only the amber wash carries cost.</figcaption>
+  </figure>
+
+  <h3>Acceptance</h3>
+  <p>Qwen3-235B-A22B reports ≈ 22 B active parameters per token (the “A22B” in its name) and Qwen3-8B ≈ 8 B; per-token compute lands within 10 % of the standard <code>2 × active params</code> rule for dense models; the T slider makes attention’s share visibly grow toward long context; every metric hover shows its formula. Ships as a lens toggle so the default view is unchanged.</p>
+</section>
+
+<section id="m6">
+  <span class="eyebrow"><span class="no">15</span> M6 · Compare</span>
+  <h2>Two models, aligned, differences first</h2>
+  <p>The second most-asked question about a model is <em>how does it differ from that other one</em> — a base vs its fine-tune, Qwen2.5 vs Qwen3, Llama vs Mistral at the same size. Compare loads two graphs side by side, aligns them structurally, and makes the differences the loudest thing on screen. It is entirely client-side (two graph fetches; the server is untouched), and its summary rows reuse the Cost lens, which is why M5 comes first.</p>
+
+  <h3>Alignment</h3>
+  <ol>
+    <li><strong>By path.</strong> Modules with identical qualified names pair up. Because Hugging Face naming converged (<code>model.layers.N.self_attn.q_proj</code> is the same in Llama, Qwen, Mistral, Gemma), this alone aligns most of two same-era LLMs and all of a base/fine-tune pair.</li>
+    <li><strong>By role.</strong> Unpaired modules pair with an unpaired sibling of the same <code>kind</code> and position (<code>wte</code> ↔ <code>embed_tokens</code>, <code>c_attn</code> ↔ the QKV projections as a group).</li>
+    <li><strong>Repeat stacks</strong> compare representative-to-representative plus counts (<code>×32</code> vs <code>×36</code>), and the structural signature says at a glance whether the blocks are the same design.</li>
+    <li>What is left is <strong>added</strong> or <strong>removed</strong>.</li>
+  </ol>
+  <p>For each pair, the diff is over the facts modelmap already holds: params, dtype, weight shapes, traced I/O shapes, attributes (<code>eps</code>, <code>bias</code>), kind and class, repeat counts — plus the config keys that matter (heads, KV heads, hidden, ffn, vocab, context, rope theta, experts/top-k, tied embeddings).</p>
+
+  <figure>
+    <svg viewBox="0 0 900 260" role="img" aria-label="Two module trees side by side with alignment lines: same-path pairs drawn as unchanged, a changed pair (q_proj with different shapes) highlighted, a stack count changed from 32 to 36, and an added module (q_norm) present only on the right." style="color: var(--muted); min-width: 700px;">
+      <text x="140" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11.5" font-weight="500" fill="var(--ink)">Qwen2.5-7B</text>
+      <text x="760" y="24" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11.5" font-weight="500" fill="var(--ink)">Qwen3-8B</text>
+      <!-- left tree -->
+      <rect x="40" y="44" width="200" height="34" rx="7" fill="var(--wash-embed)" stroke="var(--c-embed)" stroke-width="1.2"/>
+      <text x="52" y="66" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">embed_tokens  [152064×3584]</text>
+      <rect x="40" y="90" width="200" height="34" rx="7" fill="var(--card)" stroke="currentColor" stroke-width="1.2"/>
+      <text x="52" y="112" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">layers  ×28</text>
+      <rect x="40" y="136" width="200" height="34" rx="7" fill="var(--wash-attn)" stroke="var(--c-attn)" stroke-width="1.2"/>
+      <text x="52" y="158" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">q_proj  [3584×3584] bias</text>
+      <rect x="40" y="182" width="200" height="34" rx="7" fill="var(--wash-mlp)" stroke="var(--c-mlp)" stroke-width="1.2"/>
+      <text x="52" y="204" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">mlp  [3584→18944]</text>
+      <!-- right tree -->
+      <rect x="660" y="44" width="200" height="34" rx="7" fill="var(--wash-embed)" stroke="var(--c-embed)" stroke-width="1.2"/>
+      <text x="672" y="66" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">embed_tokens  [151936×4096]</text>
+      <rect x="660" y="90" width="200" height="34" rx="7" fill="var(--card)" stroke="currentColor" stroke-width="1.2"/>
+      <text x="672" y="112" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">layers  ×36</text>
+      <rect x="660" y="136" width="200" height="34" rx="7" fill="var(--wash-attn)" stroke="var(--c-attn)" stroke-width="1.2"/>
+      <text x="672" y="158" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">q_proj  [4096×4096]</text>
+      <rect x="660" y="182" width="200" height="34" rx="7" fill="var(--wash-mlp)" stroke="var(--c-mlp)" stroke-width="1.2"/>
+      <text x="672" y="204" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">mlp  [4096→12288]</text>
+      <rect x="660" y="228" width="200" height="26" rx="7" fill="var(--wash-norm)" stroke="var(--c-norm)" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <text x="672" y="245" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--ink)">q_norm  <tspan fill="var(--c-mlp)">+ added</tspan></text>
+      <!-- alignment lines with labels -->
+      <line x1="240" y1="61" x2="660" y2="61" stroke="var(--flow)" stroke-width="1.4"/>
+      <text x="450" y="56" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="var(--flow-text)">~ vocab 152 064 → 151 936 · hidden 3 584 → 4 096</text>
+      <line x1="240" y1="107" x2="660" y2="107" stroke="var(--flow)" stroke-width="1.4"/>
+      <text x="450" y="102" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="var(--flow-text)">~ ×28 → ×36 · block signature differs</text>
+      <line x1="240" y1="153" x2="660" y2="153" stroke="var(--flow)" stroke-width="1.4"/>
+      <text x="450" y="148" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="var(--flow-text)">~ shape · bias dropped</text>
+      <line x1="240" y1="199" x2="660" y2="199" stroke="var(--flow)" stroke-width="1.4"/>
+      <text x="450" y="194" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="var(--flow-text)">~ ffn 18 944 → 12 288</text>
+      <text x="450" y="244" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="currentColor">unpaired on the left: none · dimmed = unchanged pairs</text>
+    </svg>
+    <figcaption>Fig 6 — Compare aligns by path, then by role; the connecting labels are the diff. Unchanged pairs dim, changes are amber, additions/removals are marked and dashed.</figcaption>
+  </figure>
+
+  <h3>The screen</h3>
+  <ul>
+    <li><strong>Route</strong> <code>/compare/{A}...{B}</code> (revisions via <code>@rev</code>). Both models load in parallel with the same loading overlay; a picker on the landing gallery and a “compare with…” action in the top bar get you there.</li>
+    <li><strong>Two canvases</strong> with linked pan/zoom, linked expansion (expanding a paired node expands its twin), and linked selection. Nodes carry a diff mark: unchanged pairs dim to 55 % opacity, changed pairs get the amber outline, added/removed get a dashed border and a <code>+</code>/<code>−</code> chip. A “differences only” toggle collapses unchanged subtrees.</li>
+    <li><strong>Diff inspector</strong> — one panel, two columns, row-aligned facts; changed cells amber, missing cells struck. Config deltas up top.</li>
+    <li><strong>Summary strip</strong> — params, layers, heads / KV heads, hidden, ffn, vocab, context, compute/token and KV/token from the Cost lens, and the count of changed / added / removed modules.</li>
+    <li>Flow mode is disabled in Compare (two pulses is noise); the inspector’s traced shapes still show for both.</li>
+  </ul>
+
+  <h3>Acceptance</h3>
+  <p>Qwen2.5-7B vs Qwen3-8B: every layer module aligns, the diff calls out <code>q_norm</code>/<code>k_norm</code> added, projection biases removed, ffn 18 944 → 12 288, and 28 → 36 layers. gpt2 vs gpt2-medium: identical design, only widths and counts change (all pairs by path). A base and its instruct fine-tune: zero structural differences reported. Two unrelated models still render usefully with most modules unpaired rather than mis-paired.</p>
+</section>
+
 <footer>
-  modelmap · design doc v1.1 · M1–M4 shipped · deploy-ready, not deployed
+  modelmap · design doc v1.2 · M1–M4 shipped · M5 Cost lens + M6 Compare designed
 </footer>
 
 </div>
