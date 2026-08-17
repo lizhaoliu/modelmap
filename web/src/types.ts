@@ -16,6 +16,8 @@ export interface GNode {
   params: number
   dtype?: string | null
   weight_shapes?: Record<string, number[]> | null
+  /** annotator output: module attributes (in_features, eps, …) + _src/_src_url */
+  attrs?: Record<string, string> | null
 }
 
 export interface Repeat {

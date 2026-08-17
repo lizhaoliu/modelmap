@@ -24,6 +24,7 @@ from huggingface_hub import get_safetensors_metadata
 from transformers import AutoConfig, AutoModel
 
 from modelmap import collapse, trace, weights_view
+from modelmap.annotate import annotate, load_plugins
 from modelmap.hubio import with_retries
 from modelmap.schema import SCHEMA_VERSION, Edge, Graph, Node
 
@@ -42,6 +43,9 @@ def extract_graph(
     seq_len: int = trace.DEFAULT_SEQ_LEN,
 ) -> Graph:
     notes: list[str] = []
+    plugins = load_plugins()
+    if plugins:
+        notes.append("plugins: " + ", ".join(plugins))
     try:
         config = with_retries(
             lambda: AutoConfig.from_pretrained(
@@ -160,6 +164,7 @@ def _build_nodes(model) -> list[Node]:
             order=order_in_parent.get(name, 0),
             params=sum(p.numel() for p in module.parameters()),
             weight_shapes=own or None,
+            attrs=annotate(name, module) or None,
         ))
     return nodes
 

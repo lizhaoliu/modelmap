@@ -57,6 +57,9 @@ export function Inspector() {
   const repeat = index.repeatByRep.get(node.id)
   const io = index.traceByNode.get(node.id)
   const weights = node.weight_shapes ? Object.entries(node.weight_shapes) : []
+  const attrs = Object.entries(node.attrs ?? {}).filter(([k]) => !k.startsWith('_'))
+  const src = node.attrs?._src
+  const srcUrl = node.attrs?._src_url
 
   return (
     <aside className="mm-inspector">
@@ -67,7 +70,24 @@ export function Inspector() {
       <p className="mm-path">{node.id || '(root)'}</p>
       <dl className="mm-kv">
         <dt>class</dt>
-        <dd>{node.cls === '?' ? 'unknown (weights view)' : node.cls}</dd>
+        <dd>
+          {node.cls === '?' ? 'unknown (weights view)' : node.cls}
+          {src && (
+            <span className="mm-src">
+              {' '}
+              {srcUrl ? (
+                <a href={srcUrl} target="_blank" rel="noreferrer" title="open the class definition">
+                  {src}
+                </a>
+              ) : (
+                src
+              )}
+            </span>
+          )}
+        </dd>
+        {attrs.map(([k, v]) => (
+          <FragmentRow key={k} k={k} v={String(v)} />
+        ))}
         <dt>params</dt>
         <dd>
           {node.params.toLocaleString()} <span className="mm-dim">· {fmtPct(node.params, doc.params_total)} of model</span>

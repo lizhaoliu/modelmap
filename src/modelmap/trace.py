@@ -12,9 +12,8 @@ from typing import Any
 
 import torch
 
+from modelmap.inputs import DEFAULT_SEQ_LEN, build_dummy_inputs  # noqa: F401 (re-exported)
 from modelmap.schema import TraceStep
-
-DEFAULT_SEQ_LEN = 7
 MAX_SHAPES_PER_SIDE = 4
 MAX_STEPS = 20_000
 
@@ -48,7 +47,7 @@ def run_trace(
         for n, m in model.named_modules()
         if n
     ]
-    inputs, notes = build_dummy_inputs(model, config, seq_len)
+    inputs, notes, builder = build_dummy_inputs(model, config, seq_len)
     fidelity = "full"
     try:
         with torch.no_grad():
@@ -67,42 +66,18 @@ def run_trace(
         for h in handles:
             h.remove()
 
-    # vision-language models: the text-only forward never runs the image
-    # encoder, so trace it separately and put its steps first (vision.py)
-    if getattr(config, "vision_config", None) is not None:
-        from modelmap.vision import trace_vision_tower
+    # multimodal models: the text-only forward never runs the encoder towers,
+    # so trace them separately and put their steps first (towers.py)
+    if builder == "multimodal-text-path":
+        from modelmap.towers import trace_towers
 
-        vsteps, vnotes = trace_vision_tower(model, config)
-        notes = [n for n in notes if not n.startswith("vision tower not traced")] + vnotes
-        if vsteps:
-            for i, s in enumerate(vsteps + steps):
+        tsteps, tnotes = trace_towers(model, config)
+        notes = [n for n in notes if not n.startswith("text path traced")] + tnotes
+        if tsteps:
+            for i, s in enumerate(tsteps + steps):
                 s.step = i
-            steps = vsteps + steps
+            steps = tsteps + steps
     return steps, fidelity, notes
-
-
-def build_dummy_inputs(model, config, seq_len: int) -> tuple[dict[str, Any], list[str]]:
-    main = getattr(model, "main_input_name", "input_ids")
-    if main == "pixel_values":
-        return {"pixel_values": torch.zeros(_pixel_shape(config), device="meta")}, []
-    if main == "input_values":  # audio encoders
-        return {"input_values": torch.zeros((1, 16000), device="meta")}, []
-
-    notes = []
-    if getattr(config, "vision_config", None) is not None:
-        # VLM pixel inputs are model-specific; the text path is traced here and
-        # the vision tower separately (see vision.py) — this note is replaced
-        notes.append("vision tower not traced (text-only dummy input)")
-    return {
-        "input_ids": torch.zeros((1, seq_len), dtype=torch.long, device="meta")
-    }, notes
-
-
-def _pixel_shape(config) -> tuple[int, int, int, int]:
-    vc = getattr(config, "vision_config", None) or config
-    size = getattr(vc, "image_size", 224)
-    h, w = (size[0], size[-1]) if isinstance(size, (tuple, list)) else (size, size)
-    return (1, getattr(vc, "num_channels", 3), h, w)
 
 
 def _tensor_shapes(obj: Any) -> list[list[int]]:

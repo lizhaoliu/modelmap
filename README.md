@@ -8,7 +8,7 @@ the model on PyTorch's meta device, runs a hooked fake forward pass to capture r
 execution order and tensor shapes, and serves the result as a compact hierarchical graph.
 An 8B or 671B model costs the same few seconds; the graph ships as ~10 KB gzipped.
 
-Design doc: [docs/design.html](docs/design.html) · Deployment: [DEPLOY.md](DEPLOY.md)
+Design doc: [docs/design.html](docs/design.html) · Deployment: [DEPLOY.md](DEPLOY.md) · Extending: [EXTENDING.md](EXTENDING.md)
 
 ## Run it
 
@@ -35,7 +35,8 @@ docker compose up --build
   into stacks (`decoder block ×36`, `experts ×128`) so a 235B MoE opens as ~10 nodes. Click any
   node for class, params (absolute + share), dtype, weight shapes with inline dim labels
   (`[151936 vocab × 4096 hidden]`), traced I/O shapes (`[1 batch × 7 seq × 4096 hidden]`), and a
-  parameter treemap of its children. Breadcrumb trail, semantic colors, light/dark, shareable
+  parameter treemap of its children, the module's own attributes (`in_features`, `eps`, kernel…)
+  and a link to its defining source line. Breadcrumb trail, semantic colors, light/dark, shareable
   URLs that reproduce the exact view, keyboard-first (`?` lists shortcuts).
 - **Flow mode** — replays the traced forward pass: an amber pulse travels the graph in real
   execution order while a HUD narrates each step with true shapes and a plain-language caption.
@@ -43,7 +44,8 @@ docker compose up --build
   block and the pulse walks its internals. **Micro-views** show a beat's inner choreography —
   a block's norm → attention → ⊕ → norm → MLP → ⊕, attention's Q/K/V → scores → softmax → merge,
   a gated MLP, an MoE router — all filled from the model's own config and trace.
-- **Any public repo.** Text LLMs (dense and MoE), BERT, ViT, vision-language (the vision tower and
+- **Any public repo.** Text LLMs (dense and MoE), encoder-decoders (T5/BART), speech (Whisper),
+  BERT, ViT, vision-language and audio-language (the encoder tower and
   its projector are traced too — on the meta device when possible, otherwise via a depth-1 CPU
   twin, so image → patches → blocks → image tokens → LLM replays end to end), and a fallback
   ladder for the rest: architectures transformers can't instantiate, or repos requiring

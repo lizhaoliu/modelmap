@@ -29,6 +29,9 @@ class Node:
     params: int             # parameters in this subtree
     dtype: str | None = None
     weight_shapes: dict[str, list[int]] | None = None  # own (non-recursive) params
+    # per-module metadata from annotators (annotate.py): extra_repr attributes
+    # like in_features / kernel_size / eps, and _src / _src_url for the class
+    attrs: dict[str, Any] | None = None
 
 
 @dataclass

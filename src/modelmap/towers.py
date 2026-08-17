@@ -1,8 +1,9 @@
-"""Vision-tower tracing for vision-language models (design doc §05, fallback ladder).
+"""Auxiliary-encoder tracing for multimodal models (design doc §05, fallback ladder):
+vision towers in VLMs, audio encoders in audio-language models.
 
 The main traced forward feeds text only: multimodal inputs need model-specific
-packing, and the position math inside vision towers is data-dependent
-(`.tolist()` on patch grids), which the meta device cannot evaluate. So the
+packing, and the position math inside encoders is often data-dependent
+(`.tolist()` on patch grids), which the meta device cannot evaluate. So each
 tower is traced separately, in two attempts:
 
   A. standalone on the meta device with a plausible pixel input — works for
@@ -32,30 +33,42 @@ from modelmap.schema import TraceStep
 log = logging.getLogger(__name__)
 
 _VISION_CLS = re.compile(r"(Vision|Visual|Siglip|Clip|ImageEncoder|Pixtral)", re.I)
+_AUDIO_CLS = re.compile(r"(Audio|Whisper|Speech|Wav2Vec|Hubert)", re.I)
 _PROJECTOR = re.compile(r"(multi_modal_projector|mm_projector|connector|projector|vision_projection|visual_projection|aligner)$")
-_DEPTH_ATTRS = ("depth", "num_hidden_layers", "num_layers")
+_DEPTH_ATTRS = ("depth", "num_hidden_layers", "num_layers", "encoder_layers")
 
 
-def find_vision_tower(model: nn.Module) -> tuple[str, nn.Module] | None:
-    """Outermost submodule that looks like an image encoder."""
+def _owns_vocab_embedding(m: nn.Module) -> bool:
+    """Encoder towers never carry a token vocabulary; anything wrapping the
+    language model does (e.g. Qwen2AudioModel matches /Audio/ but is not the tower)."""
+    return any(
+        isinstance(sub, nn.Embedding) and sub.num_embeddings >= 16384 for sub in m.modules()
+    )
+
+
+def find_tower(model: nn.Module, cls_pat: re.Pattern) -> tuple[str, nn.Module] | None:
+    """Outermost submodule whose class looks like the encoder we want."""
     best: tuple[str, nn.Module] | None = None
     for name, m in model.named_modules():
-        if not name or not _VISION_CLS.search(type(m).__name__):
+        if not name or not cls_pat.search(type(m).__name__):
             continue
-        if not any(True for _ in m.parameters()):
+        if not any(True for _ in m.parameters()) or _owns_vocab_embedding(m):
             continue
         if best is None or name.count(".") < best[0].count("."):
             best = (name, m)
     return best
 
 
-def _vision_config(config, tower: nn.Module):
-    vc = getattr(tower, "config", None) or getattr(config, "vision_config", None)
-    return vc
+def _tower_config(config, tower: nn.Module, key: str):
+    return getattr(tower, "config", None) or getattr(config, key, None)
 
 
 def _pixel_input(vc, device: str, dtype: torch.dtype) -> tuple[list[Any], dict[str, Any], str]:
     """Positional args + kwargs for the tower forward, and a description."""
+    if hasattr(vc, "num_mel_bins") or hasattr(vc, "input_feat_per_channel"):  # audio encoder
+        mel = getattr(vc, "num_mel_bins", None) or getattr(vc, "input_feat_per_channel", 80)
+        frames = 2 * getattr(vc, "max_source_positions", 1500)
+        return [torch.zeros((1, mel, frames), device=device, dtype=dtype)], {}, f"{mel} mel × {frames} frames"
     ch = getattr(vc, "in_channels", None) or getattr(vc, "num_channels", 3)
     if hasattr(vc, "spatial_merge_size"):  # Qwen-VL family: flattened patches + grid
         ps = getattr(vc, "patch_size", 14)
@@ -95,14 +108,27 @@ def _run(module: nn.Module, args: list[Any], kwargs: dict[str, Any]) -> None:
             module(pixel_values=args[0], **kwargs)
 
 
-def trace_vision_tower(model: nn.Module, config) -> tuple[list[TraceStep], list[str]]:
-    found = find_vision_tower(model)
+def trace_towers(model: nn.Module, config) -> tuple[list[TraceStep], list[str]]:
+    """Trace every auxiliary encoder the config declares (vision, audio)."""
+    steps: list[TraceStep] = []
+    notes: list[str] = []
+    for key, pat, label in (("vision_config", _VISION_CLS, "vision"), ("audio_config", _AUDIO_CLS, "audio")):
+        if getattr(config, key, None) is None:
+            continue
+        s, n = _trace_tower(model, config, key, pat, label)
+        steps += s
+        notes += n
+    return steps, notes
+
+
+def _trace_tower(model: nn.Module, config, cfg_key: str, cls_pat: re.Pattern, label: str) -> tuple[list[TraceStep], list[str]]:
+    found = find_tower(model, cls_pat)
     if not found:
-        return [], []
+        return [], [f"no {label} encoder module found to trace"]
     name, tower = found
-    vc = _vision_config(config, tower)
+    vc = _tower_config(config, tower, cfg_key)
     if vc is None:
-        return [], [f"vision tower {name}: no vision config to build an input from"]
+        return [], [f"{label} tower {name}: no config to build an input from"]
     notes: list[str] = []
     dtype = next(tower.parameters()).dtype
 
@@ -112,7 +138,7 @@ def trace_vision_tower(model: nn.Module, config) -> tuple[list[TraceStep], list[
     try:
         args, kwargs, desc = _pixel_input(vc, "meta", dtype)
         _run(tower, args, kwargs)
-        notes.append(f"vision tower traced standalone on the meta device ({desc})")
+        notes.append(f"{label} tower traced standalone on the meta device ({desc})")
         return steps + _trace_projector(model, config, name, steps), notes
     except Exception as e:
         log.debug("meta vision trace failed: %s", e)
@@ -156,13 +182,13 @@ def trace_vision_tower(model: nn.Module, config) -> tuple[list[TraceStep], list[
             log.debug("twin (%s) failed: %s", attempt_dtype, e)
             steps = []
     if not steps:
-        return [], [f"vision tower {name} could not be traced (no standalone or twin forward)"]
+        return [], [f"{label} tower {name} could not be traced (no standalone or twin forward)"]
 
     real_names = {n for n, _ in model.named_modules()}
     steps = [s for s in steps if s.node in real_names]
     steps = _replicate_blocks(steps, real_names, real_depth)
     notes.append(
-        f"vision tower traced with a shallow CPU twin ({desc}, {twin_dtype!s}); "
+        f"{label} tower traced with a shallow CPU twin ({desc}, {twin_dtype!s}); "
         f"1 of {real_depth} identical blocks run, its shapes replicated per block"
     )
     return steps + _trace_projector(model, config, name, steps), notes

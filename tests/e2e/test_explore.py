@@ -40,6 +40,7 @@ with sync_playwright() as p:
     check("inspector shows path", "transformer.h.0.ln_1" in insp)
     check("inspector shows params share", "of model" in insp)
     check("inspector shows labeled I/O shapes", "input" in insp and "768 hidden" in insp)
+    check("inspector shows module attrs + source link", "eps" in insp and page.locator(".mm-src a").count() == 1)
     check("url carries selection", "sel=" in page.url, page.url)
     check("breadcrumb shows path", "ln_1" in page.locator(".mm-crumbs").inner_text())
 
