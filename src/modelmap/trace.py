@@ -49,6 +49,7 @@ def run_trace(
         if n
     ]
     inputs, notes = build_dummy_inputs(model, config, seq_len)
+    fidelity = "full"
     try:
         with torch.no_grad():
             model(**inputs)
@@ -57,15 +58,27 @@ def run_trace(
                 f"trace truncated at {MAX_STEPS} steps (very high module count); "
                 "flow replay covers the recorded prefix"
             )
-        return steps, "full", notes
     except Exception as e:  # data-dependent shapes, .item(), … — expected for e.g. MoE routing
         notes.append(
             f"traced forward faulted after {len(steps)} steps: {type(e).__name__}: {e}"
         )
-        return steps, "structural", notes
+        fidelity = "structural"
     finally:
         for h in handles:
             h.remove()
+
+    # vision-language models: the text-only forward never runs the image
+    # encoder, so trace it separately and put its steps first (vision.py)
+    if getattr(config, "vision_config", None) is not None:
+        from modelmap.vision import trace_vision_tower
+
+        vsteps, vnotes = trace_vision_tower(model, config)
+        notes = [n for n in notes if not n.startswith("vision tower not traced")] + vnotes
+        if vsteps:
+            for i, s in enumerate(vsteps + steps):
+                s.step = i
+            steps = vsteps + steps
+    return steps, fidelity, notes
 
 
 def build_dummy_inputs(model, config, seq_len: int) -> tuple[dict[str, Any], list[str]]:
@@ -77,8 +90,8 @@ def build_dummy_inputs(model, config, seq_len: int) -> tuple[dict[str, Any], lis
 
     notes = []
     if getattr(config, "vision_config", None) is not None:
-        # VLM pixel inputs are model-specific (patch grids etc.); the text path
-        # alone still exercises most of the graph
+        # VLM pixel inputs are model-specific; the text path is traced here and
+        # the vision tower separately (see vision.py) — this note is replaced
         notes.append("vision tower not traced (text-only dummy input)")
     return {
         "input_ids": torch.zeros((1, seq_len), dtype=torch.long, device="meta")

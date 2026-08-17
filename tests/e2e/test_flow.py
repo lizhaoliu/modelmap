@@ -87,6 +87,15 @@ with sync_playwright() as p:
     page.wait_for_timeout(1500)
     check("stepped narration continues without pulse", h1 != page.locator(".mm-hud").inner_text())
 
+    # vision-language model: the vision tower is traced and replayed first
+    page.goto(f"{BASE}/m/Qwen/Qwen2.5-VL-3B-Instruct?sel=model.visual.blocks.0.norm1&mode=flow", wait_until="networkidle")
+    page.wait_for_selector(".mm-hud", timeout=120000)
+    insp = page.locator(".mm-inspector").inner_text()
+    check("VLM vision module has traced I/O", "input" in insp and "vision hidden" in insp)
+    check("VLM replay starts in the vision tower", "patch_embed" in page.locator(".mm-hud-name").inner_text())
+    check("patch count labeled", "patches" in insp)
+    page.screenshot(path=f"{SHOTS}/flow-3-vlm.png")
+
     check("no page JS errors", not errors, "; ".join(errors[:2]))
     b.close()
 

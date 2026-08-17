@@ -43,7 +43,9 @@ docker compose up --build
   block and the pulse walks its internals. **Micro-views** show a beat's inner choreography —
   a block's norm → attention → ⊕ → norm → MLP → ⊕, attention's Q/K/V → scores → softmax → merge,
   a gated MLP, an MoE router — all filled from the model's own config and trace.
-- **Any public repo.** Text LLMs (dense and MoE), BERT, ViT, vision-language, and a fallback
+- **Any public repo.** Text LLMs (dense and MoE), BERT, ViT, vision-language (the vision tower and
+  its projector are traced too — on the meta device when possible, otherwise via a depth-1 CPU
+  twin, so image → patches → blocks → image tokens → LLM replays end to end), and a fallback
   ladder for the rest: architectures transformers can't instantiate, or repos requiring
   `trust_remote_code` (refused by default — it executes arbitrary Python), get a structural
   **weights view** rebuilt from safetensors headers alone. Gated repos work once you add a

@@ -19,7 +19,7 @@ single named volume at `/data` for the graph cache and HF metadata cache.
 | | |
 |---|---|
 | Server parent process | ~50 MB RSS (torch-free) |
-| Each extraction worker | ~350–450 MB RSS (torch + transformers) |
+| Each extraction worker | ~350–450 MB RSS (torch + transformers); vision-language models add a transient ~100–300 MB while a depth-1 twin of the vision tower runs on the CPU |
 | Uncached extraction | 1–5 s typical, ~15 s for 100+-shard repos (Hub I/O bound) |
 | Cached hit | pre-gzipped bytes from disk; ~1 ms of CPU, ETag/304 aware |
 | Cache footprint | ~5–25 KB per model; ~1 MB per 100 models |

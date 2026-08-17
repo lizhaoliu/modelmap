@@ -92,9 +92,34 @@ export function buildDimLabels(doc: GraphDoc): Map<number, string> {
   if (!num('head_dim') && hidden && heads && hidden % heads === 0) {
     candidates.push([hidden / heads, 'head dim'])
   }
-  const first = doc.trace[0]?.inputs?.[0]
+  // vision towers (VLMs and ViTs): their own hidden size and patch geometry
+  const v = (c.vision_config ?? {}) as Record<string, unknown>
+  const vnum = (k: string) => (typeof v[k] === 'number' ? (v[k] as number) : undefined)
+  candidates.push(
+    [vnum('hidden_size'), 'vision hidden'],
+    [vnum('intermediate_size'), 'vision ffn'],
+    [vnum('num_heads') ?? vnum('num_attention_heads'), 'heads'],
+    [vnum('patch_size') ?? num('patch_size'), 'patch'],
+    [vnum('out_hidden_size'), 'hidden'],
+  )
+  const ch = vnum('in_channels') ?? vnum('num_channels')
+  const ps = vnum('patch_size')
+  const tps = vnum('temporal_patch_size')
+  if (ch && ps && tps) candidates.push([ch * tps * ps * ps, 'patch values'])
+  // the traced text input gives seq; the first vision step gives patches / image tokens
+  const first = doc.trace.find((t) => !/(^|\.)(visual|vision)/.test(t.node))?.inputs?.[0]
   if (first?.length === 2) candidates.push([first[1], 'seq'])
   if (first?.length === 4) candidates.push([first[1], 'ch'], [first[2], 'px'], [first[3], 'px'])
+  // the tower-level step (outermost vision node) carries the pixel input
+  const visSteps = doc.trace.filter((t) => /(^|\.)(visual|vision)/.test(t.node))
+  const tower = visSteps.length
+    ? visSteps.reduce((a, b) => (b.node.split('.').length < a.node.split('.').length ? b : a))
+    : undefined
+  const vis = tower?.inputs?.[0]
+  if (vis?.length === 2) candidates.push([vis[0], 'patches'])
+  if (vis?.length === 4) candidates.push([vis[1], 'ch'], [vis[2], 'px'], [vis[3], 'px'])
+  const towerOut = tower?.outputs?.at(-1)
+  if (towerOut?.length === 2 && towerOut[0] !== vis?.[0]) candidates.push([towerOut[0], 'image tokens'])
 
   const map = new Map<number, string>()
   const clash = new Set<number>()
@@ -135,6 +160,7 @@ export function buildIndex(doc: GraphDoc): GraphIndex {
     repeatByParent,
     traceByNode,
     dimLabels: buildDimLabels(doc),
-    traceBatch: doc.trace[0]?.inputs?.[0]?.[0],
+    // batch comes from the main (text / image) forward, not a separately traced vision tower
+    traceBatch: (doc.trace.find((t) => !/(^|\.)(visual|vision)/.test(t.node)) ?? doc.trace[0])?.inputs?.[0]?.[0],
   }
 }

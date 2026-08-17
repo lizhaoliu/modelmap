@@ -25,13 +25,18 @@ interface State {
 }
 
 /** Containers open by default: the root and its immediate container children.
- *  Everything deeper starts closed (design doc §07: first view ≈ 10 nodes). */
-function defaultExpanded(index: GraphIndex): Set<string> {
+ *  Everything deeper starts closed (design doc §07: first view ≈ 10 nodes).
+ *  Vision-language models get one more level — their depth-2 children are the
+ *  vision tower and the language model, each of which is the real story. */
+function defaultExpanded(index: GraphIndex, doc: GraphDoc): Set<string> {
   const out = new Set<string>()
+  const isVLM = doc.config.vision_config != null
   for (const [id, kids] of index.children.entries()) {
     if (id === null || !kids.length) continue
     const node = index.byId.get(id)
-    if (node && node.depth <= 1) out.add(id)
+    if (!node) continue
+    if (node.depth <= 1) out.add(id)
+    else if (isVLM && node.depth === 2 && !index.repeatByParent.has(id) && kids.length >= 2) out.add(id)
   }
   out.add('')
   return out
@@ -114,7 +119,7 @@ export const useStore = create<State>((set, get) => ({
         loading: null,
         error: null,
         errorModel: null,
-        expanded: defaultExpanded(index),
+        expanded: defaultExpanded(index, doc),
         selected: null,
       })
       if (opts?.push !== false) {

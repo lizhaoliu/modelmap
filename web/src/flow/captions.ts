@@ -13,6 +13,25 @@ export function caption(node: GNode, doc: GraphDoc, beat: Beat): string {
   const inter = c.intermediate_size ?? c.moe_intermediate_size
   const vocab = c.vocab_size
   const leaf = node.id.split('.').pop() ?? ''
+  const inVision = /(^|\.)(visual|vision|vision_tower|vision_model|image_encoder)(\.|$)/.test(node.id)
+  const vc = (doc.config.vision_config ?? {}) as Record<string, number | undefined>
+
+  // vision tower & vision→language bridge (VLMs)
+  if (/^patch_embed/.test(leaf) || (inVision && /embed/.test(leaf) && node.kind !== 'norm')) {
+    return vc.patch_size ? `cut the image into ${vc.patch_size}×${vc.patch_size} patches and embed each one` : 'cut the image into patches and embed each one'
+  }
+  if (/^(merger|multi_modal_projector|mm_projector|connector|projector|aligner)$/.test(leaf)) {
+    return 'merge and project the patch features into the language model’s width — they become image tokens in the sequence'
+  }
+  if (inVision && /pos_embed|position/.test(leaf)) return 'add position information for each patch'
+  if (inVision && node.kind === 'attention') return 'every patch attends to every other patch — global context across the image'
+  if (inVision && node.kind === 'mlp') return 'position-wise MLP: transform each patch feature'
+  if (inVision && beat.member && (node.kind === 'container' || node.kind === 'module')) {
+    return `one vision block — patches attend to each other, then a feed-forward transforms each — repeated ${beat.member.count} times`
+  }
+  if (inVision && (node.kind === 'container' || node.kind === 'module') && /^(visual|vision_tower|vision_model)$/.test(leaf)) {
+    return 'the image encoder: patches → transformer blocks → image tokens for the language model'
+  }
 
   if (beat.member && (node.kind === 'container' || node.kind === 'module')) {
     return `one full block — attention mixes context between positions, the feed-forward transforms each one — repeated ${beat.member.count} times`
