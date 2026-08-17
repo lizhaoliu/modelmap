@@ -2,4 +2,5 @@
 
 __version__ = "0.1.0"
 
-from modelmap.extract import extract_graph  # noqa: F401
+# NOTE: no eager submodule imports here. The server parent process must stay
+# torch-free (~250 MB); extraction imports torch only inside worker processes.

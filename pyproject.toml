@@ -17,7 +17,7 @@ dependencies = [
 modelmap = "modelmap.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27", "playwright>=1.45"]
 
 [build-system]
 requires = ["hatchling"]
@@ -25,6 +25,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/modelmap"]
+# the built SPA is git-ignored (produced by `cd web && npm run build`) but must
+# ship in the wheel — `artifacts` includes VCS-ignored paths
+artifacts = ["src/modelmap/web/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/modelmap", "README.md", "pyproject.toml"]
+artifacts = ["src/modelmap/web/**"]
 
 # Extraction runs on the meta device and never touches weights, so the
 # CPU-only torch build is all we need (design doc §09).
@@ -35,3 +42,7 @@ torch = [{ index = "pytorch-cpu" }]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--ignore=tests/e2e"
