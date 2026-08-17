@@ -41,7 +41,8 @@ COPY --from=web /build/src/modelmap/web ./src/modelmap/web
 RUN uv sync --frozen --no-dev
 
 # non-root, writable data dir only
-RUN useradd -r -u 10001 -d /data modelmap && mkdir -p /data && chown -R modelmap:modelmap /data
+# uid 1000 is the user Hugging Face Docker Spaces run as; harmless elsewhere
+RUN useradd -m -u 1000 -d /data modelmap && mkdir -p /data/graphs /data/hf && chown -R modelmap:modelmap /data
 USER modelmap
 VOLUME ["/data"]
 EXPOSE 7860
