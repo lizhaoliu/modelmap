@@ -1,9 +1,12 @@
+import { useMemo, useState } from 'react'
 import { leafName } from '../fmt'
 import type { FlowScript } from '../flow/beats'
 import { caption } from '../flow/captions'
 import type { FlowApi } from '../flow/engine'
 import { useFlowStore } from '../flow/flowStore'
+import { buildMicro } from '../flow/micro'
 import { useStore } from '../store'
+import { MicroView } from './MicroView'
 import { Shape } from './Shape'
 
 const SPEEDS = [0.5, 1, 2, 4]
@@ -26,15 +29,29 @@ export function FlowBar({ script, api }: { script: FlowScript; api: FlowApi }) {
   const deactivate = useFlowStore((s) => s.deactivate)
   const doc = useStore((s) => s.doc)
   const index = useStore((s) => s.index)
+  const [showMicro, setShowMicro] = useState(() => localStorage.getItem('mm-micro') !== '0')
 
-  if (!active || !doc || !index || !script.beats.length) return null
   const beat = script.beats[Math.min(beatIdx, script.beats.length - 1)]
-  const node = index.byId.get(beat.node)
+  const node = beat && index ? index.byId.get(beat.node) : undefined
+  const micro = useMemo(
+    () => (node && doc && index && beat ? buildMicro(node, doc, index, beat) : null),
+    [node, doc, index, beat],
+  )
+
+  if (!active || !doc || !index || !script.beats.length || !beat) return null
   const inShape = beat.inShapes[0]
   const outShape = beat.outShapes[0]
 
+  const toggleMicro = () => {
+    localStorage.setItem('mm-micro', showMicro ? '0' : '1')
+    setShowMicro(!showMicro)
+  }
+
   return (
     <div className="mm-flowbar-wrap">
+      {micro && showMicro && (
+        <MicroView key={beatIdx} script={micro} beatDur={beat.dur} elapsed={Math.max(0, tCoarse - beat.start)} />
+      )}
       <div className="mm-hud">
         <span className="mm-hud-name">{leafName(beat.node)}</span>
         {beat.member && (
@@ -48,6 +65,11 @@ export function FlowBar({ script, api }: { script: FlowScript; api: FlowApi }) {
           {outShape ? <Shape shape={outShape} labels={index.dimLabels} batch={index.traceBatch} /> : '—'}
         </span>
         {node && <span className="mm-hud-caption">{caption(node, doc, beat)}</span>}
+        {micro && (
+          <button className="mm-hud-micro-toggle" onClick={toggleMicro} title="Show the inner steps of this module">
+            {showMicro ? 'hide detail' : 'show detail'}
+          </button>
+        )}
       </div>
       <div className="mm-flowbar">
         <button

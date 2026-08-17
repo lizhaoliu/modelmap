@@ -1,4 +1,4 @@
-import ELK from 'elkjs/lib/elk.bundled.js'
+import ELK from 'elkjs/lib/elk-api.js'
 import type { Edge, Node } from '@xyflow/react'
 import { MarkerType } from '@xyflow/react'
 import type { GNode, GraphDoc, GraphIndex, Repeat } from '../types'
@@ -34,6 +34,20 @@ const BASE_OPTS = {
  *  stack top-to-bottom so expanded models stay compact. */
 function dirFor(depth: number): 'RIGHT' | 'DOWN' {
   return depth <= 2 ? 'RIGHT' : 'DOWN'
+}
+
+/** One ELK instance, running in a Web Worker so layout of large expansions
+ *  never blocks the main thread (design doc §07). The worker chunk is
+ *  code-split out of the main bundle. */
+let _elk: InstanceType<typeof ELK> | null = null
+function getElk() {
+  if (!_elk) {
+    _elk = new ELK({
+      workerFactory: () =>
+        new Worker(new URL('elkjs/lib/elk-worker.min.js', import.meta.url), { type: 'classic' }),
+    })
+  }
+  return _elk
 }
 
 interface ElkShape {
@@ -105,9 +119,8 @@ export async function layoutGraph(
     edges: elkEdgesFor(''),
   }
 
-  const elk = new ELK()
-  const laid = (await elk.layout(
-    root as unknown as Parameters<typeof elk.layout>[0],
+  const laid = (await getElk().layout(
+    root as unknown as Parameters<ReturnType<typeof getElk>['layout']>[0],
   )) as unknown as ElkShape
 
   const nodes: MMNode[] = []

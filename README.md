@@ -6,50 +6,69 @@ every projection, animated so you can watch a token flow from embedding to logit
 **No weights are ever downloaded.** modelmap fetches `config.json` (~2 KB), instantiates
 the model on PyTorch's meta device, runs a hooked fake forward pass to capture real
 execution order and tensor shapes, and serves the result as a compact hierarchical graph.
+An 8B or 671B model costs the same few seconds; the graph ships as ~10 KB gzipped.
 
-Full design: [docs/design.html](docs/design.html) (v1.0, approved 2026-08-14).
+Design doc: [docs/design.html](docs/design.html) · Deployment: [DEPLOY.md](DEPLOY.md)
+
+## Run it
+
+```bash
+# one-off, nothing to install (pins the CPU torch wheel instead of the 2.5 GB CUDA one)
+uvx --index https://download.pytorch.org/whl/cpu modelmap        # opens http://127.0.0.1:7860
+
+# from a checkout
+uv sync && (cd web && npm install && npm run build)
+uv run modelmap                       # serve + open browser
+uv run modelmap serve --warm          # pre-extract the gallery in the background
+uv run modelmap dump Qwen/Qwen3-8B    # graph JSON to a file
+
+# container (non-root, read-only rootfs, capabilities dropped)
+docker compose up --build
+```
+
+`uvx modelmap` needs the package on PyPI (`uv publish`) or a wheel from a GitHub release
+(`uvx --from <wheel-url> …`); CI builds and attaches one per release.
+
+## What you get
+
+- **Explore mode** — a zoomable, collapsible map of the module tree. Repeated layers collapse
+  into stacks (`decoder block ×36`, `experts ×128`) so a 235B MoE opens as ~10 nodes. Click any
+  node for class, params (absolute + share), dtype, weight shapes with inline dim labels
+  (`[151936 vocab × 4096 hidden]`), traced I/O shapes (`[1 batch × 7 seq × 4096 hidden]`), and a
+  parameter treemap of its children. Breadcrumb trail, semantic colors, light/dark, shareable
+  URLs that reproduce the exact view, keyboard-first (`?` lists shortcuts).
+- **Flow mode** — replays the traced forward pass: an amber pulse travels the graph in real
+  execution order while a HUD narrates each step with true shapes and a plain-language caption.
+  Repeat stacks compress with a `layer 12 / 36` counter (~12 s for a full 8B replay). Expand a
+  block and the pulse walks its internals. **Micro-views** show a beat's inner choreography —
+  a block's norm → attention → ⊕ → norm → MLP → ⊕, attention's Q/K/V → scores → softmax → merge,
+  a gated MLP, an MoE router — all filled from the model's own config and trace.
+- **Any public repo.** Text LLMs (dense and MoE), BERT, ViT, vision-language, and a fallback
+  ladder for the rest: architectures transformers can't instantiate, or repos requiring
+  `trust_remote_code` (refused by default — it executes arbitrary Python), get a structural
+  **weights view** rebuilt from safetensors headers alone. Gated repos work once you add a
+  token (top bar → token; stored in your browser only, never cached server-side).
 
 ## Status
 
 - [x] Design doc
 - [x] M1 — extractor + CLI + API
-- [x] M2 — Explore mode (interactive graph UI)
-- [x] M3 — Flow mode (animated forward pass with captions)
-- [ ] **M4 — micro-views, gallery, hosted deployment** *(next)*
+- [x] M2 — Explore mode
+- [x] M3 — Flow mode with captions
+- [x] M4 — micro-views, gallery, treemap, `uvx` packaging, hardened deploy-ready container
+- [ ] Not deployed anywhere yet (by choice); see DEPLOY.md when ready
 
-M4 also folds in the hosted-hardening list (measured 2026-08-14): lazy torch import in
-the server parent (−250 MB), worker-count env knob, in-flight extraction de-dup,
-pre-gzipped cached responses, queue back-pressure (429), and the §05 extraction sandbox.
-
-## Quickstart
+## Development
 
 ```bash
-uv sync
-(cd web && npm install && npm run build)   # builds the SPA into src/modelmap/web
+uv run modelmap serve --port 7860     # API + built SPA
+cd web && npm run dev                 # Vite dev server on :5173, proxies /api
 
-uv run modelmap serve --port 7860
-# → open http://127.0.0.1:7860 · search a model or open /m/Qwen/Qwen3-8B
-
-# or dump a graph JSON directly
-uv run modelmap dump Qwen/Qwen3-8B -o qwen3-8b.graph.json
+uv run pytest                         # unit tests (collapse, hub retries, server behavior)
+uv run python tests/e2e/test_explore.py   # browser acceptance suites (need a running server
+uv run python tests/e2e/test_flow.py      # on :7860, playwright, and a Chromium build)
+uv run python tests/e2e/test_m4.py
 ```
 
-### Frontend development
-
-```bash
-uv run modelmap serve --port 7860   # API
-cd web && npm run dev               # Vite dev server on :5173, proxies /api
-```
-
-Repos that require `trust_remote_code` are refused by default (they execute arbitrary
-Python); pass `--trust-remote-code` only for repos you trust, ideally locally.
-
-## Tests
-
-```bash
-uv run pytest                                  # unit tests (collapse, hub retries)
-uv run modelmap serve --port 7860 &            # then the browser acceptance suites:
-uv run python tests/e2e/test_explore.py        # M2 explore mode
-uv run python tests/e2e/test_flow.py           # M3 flow mode
-```
-The e2e suites need `playwright` (`uv pip install playwright`) and a Chromium build.
+Layout: `src/modelmap/` (extractor, server, CLI) · `web/` (React + React Flow + elkjs SPA,
+built into `src/modelmap/web/` and shipped in the wheel) · `tests/` · `docs/design.html`.

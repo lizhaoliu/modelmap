@@ -43,6 +43,7 @@ export default function App() {
   const loading = useStore((s) => s.loading)
   const error = useStore((s) => s.error)
   const errorModel = useStore((s) => s.errorModel)
+  const toast = useStore((s) => s.toast)
   const loadModel = useStore((s) => s.loadModel)
   const select = useStore((s) => s.select)
 
@@ -83,6 +84,11 @@ export default function App() {
             !loading && !error && <Landing />
           )}
           {loading && <LoadingOverlay modelId={loading} />}
+          {toast && (
+            <div className="mm-toast" role="status">
+              {toast}
+            </div>
+          )}
           {error && (
             <div className="mm-error" role="alert">
               <strong>Could not load this model.</strong>

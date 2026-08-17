@@ -313,7 +313,7 @@ footer {
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">Design doc · v1.0 · approved 2026-08-14</span>
+  <span class="eyebrow">Design doc · v1.1 · approved 2026-08-14 · built through M4</span>
   <h1>modelmap</h1>
   <p class="tagline">Paste a Hugging Face model id. Get a <strong>living map of the network</strong> — explorable down to every projection, animated so you can watch a token flow from embedding to logits.</p>
 
@@ -373,7 +373,7 @@ footer {
 
   <div class="meta-row">
     <span>project <b>modelmap</b></span>
-    <span>status <b>approved — M1 in progress</b></span>
+    <span>status <b>M1–M4 shipped · not yet deployed</b></span>
     <span>author <b>lizhaoliu + Claude</b></span>
     <span>repo <b>~/repo/modelmap</b></span>
   </div>
@@ -815,11 +815,12 @@ footer {
     <li><strong>Educational captions: core.</strong> The plain-language shape narrative in Flow mode (§08) lands with M3, not as a later nice-to-have.</li>
     <li><strong>v1 model families: multimodal included.</strong> ViT and Qwen2.5-VL join the acceptance set alongside text LLMs, BERT, and MoE.</li>
     <li><strong>Name: <code>modelmap</code></strong> (was <code>hviz</code>) — package, CLI, repo, and site. PyPI-available at decision time.</li>
+    <li><strong>Post-build (2026-08-15/16):</strong> a CSS 2.5D tilt was prototyped and rejected — depth encoded nothing the 2D containment cues didn't already show. Any future 3D work stays scoped to a Flow-mode replay scene where physical tensor proportions would be new information. Hosting hardening measured and built (torch-free parent ≈50 MB, pre-gzipped cache, de-dup, back-pressure, rate limit, worker rlimits, container with dropped capabilities); deployment target intentionally left open.</li>
   </ol>
 </section>
 
 <footer>
-  modelmap · design doc v1.0 · approved 2026-08-14 · M1 in progress
+  modelmap · design doc v1.1 · M1–M4 shipped · deploy-ready, not deployed
 </footer>
 
 </div>

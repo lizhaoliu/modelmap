@@ -1,6 +1,7 @@
 import { fmtParams, fmtPct, leafName } from '../fmt'
 import { useStore } from '../store'
 import { Shape } from './Shape'
+import { Treemap } from './Treemap'
 
 const CONFIG_KEYS = [
   'hidden_size', 'num_hidden_layers', 'num_attention_heads', 'num_key_value_heads',
@@ -37,6 +38,7 @@ export function Inspector() {
             <FragmentRow key={k} k={k} v={String(v)} />
           ))}
         </dl>
+        <Treemap parent="" overview />
         {doc.notes.length > 0 && (
           <div className="mm-notes">
             {doc.notes.map((n, i) => (
@@ -115,6 +117,7 @@ export function Inspector() {
           style={{ width: `${Math.max(0.5, (node.params / doc.params_total) * 100)}%` }}
         />
       </div>
+      <Treemap parent={node.id} />
       {weights.length > 0 && (
         <>
           <h3>weights</h3>

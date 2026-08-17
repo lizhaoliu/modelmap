@@ -13,6 +13,9 @@ interface State {
   /** container just opened — the canvas frames it once, then clears this */
   lastExpanded: string | null
   clearLastExpanded: () => void
+  /** transient message (render-budget collapses, copied links, …) */
+  toast: string | null
+  setToast: (msg: string | null) => void
   loadModel: (id: string, opts?: { push?: boolean }) => Promise<void>
   toggleExpand: (id: string) => void
   expand: (id: string) => void
@@ -34,6 +37,55 @@ function defaultExpanded(index: GraphIndex): Set<string> {
   return out
 }
 
+/** Design doc §10 render budget: never mount more than this many nodes.
+ *  When an expansion would exceed it, the least recently opened containers
+ *  (never the one just opened, nor its ancestors) are collapsed, with a toast. */
+export const RENDER_BUDGET = 300
+const openOrder: string[] = [] // least-recent first
+
+function countVisible(index: GraphIndex, expanded: Set<string>): number {
+  let n = 0
+  const walk = (parent: string) => {
+    for (const c of index.children.get(parent) ?? []) {
+      n++
+      if (expanded.has(c.id)) walk(c.id)
+    }
+  }
+  walk('')
+  return n
+}
+
+function enforceBudget(state: State, expanded: Set<string>, opened: string | null): Set<string> {
+  const { index } = state
+  if (!index) return expanded
+  for (const id of expanded) if (!openOrder.includes(id)) openOrder.push(id)
+  for (let i = openOrder.length - 1; i >= 0; i--) if (!expanded.has(openOrder[i])) openOrder.splice(i, 1)
+  const protect = new Set<string>([''])
+  if (opened) {
+    let cur: string | null = opened
+    while (cur != null) {
+      protect.add(cur)
+      cur = index.byId.get(cur)?.parent ?? null
+    }
+  }
+  let collapsed = 0
+  while (countVisible(index, expanded) > RENDER_BUDGET) {
+    const victim = openOrder.find((id) => !protect.has(id) && expanded.has(id))
+    if (!victim) break
+    expanded.delete(victim)
+    openOrder.splice(openOrder.indexOf(victim), 1)
+    collapsed++
+  }
+  if (collapsed) {
+    setTimeout(() =>
+      useStore.getState().setToast(
+        `Collapsed ${collapsed} container${collapsed > 1 ? 's' : ''} to stay under ${RENDER_BUDGET} visible modules`,
+      ),
+    )
+  }
+  return expanded
+}
+
 export const useStore = create<State>((set, get) => ({
   doc: null,
   index: null,
@@ -44,6 +96,11 @@ export const useStore = create<State>((set, get) => ({
   selected: null,
   lastExpanded: null,
   clearLastExpanded: () => set({ lastExpanded: null }),
+  toast: null,
+  setToast: (msg) => {
+    set({ toast: msg })
+    if (msg) setTimeout(() => get().toast === msg && set({ toast: null }), 3200)
+  },
 
   async loadModel(id, opts) {
     if (get().loading === id) return
@@ -76,7 +133,7 @@ export const useStore = create<State>((set, get) => ({
       set({ expanded, lastExpanded: null })
     } else {
       expanded.add(id)
-      set({ expanded, lastExpanded: id })
+      set({ expanded: enforceBudget(get(), expanded, id), lastExpanded: id })
     }
   },
 
@@ -94,7 +151,7 @@ export const useStore = create<State>((set, get) => ({
         opened = opened ?? id
       }
     }
-    set({ expanded, lastExpanded: opened })
+    set({ expanded: enforceBudget(get(), expanded, opened), lastExpanded: opened })
   },
 
   collapse(id) {

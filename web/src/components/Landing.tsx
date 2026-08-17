@@ -1,31 +1,63 @@
+import { useEffect, useState } from 'react'
+import { fetchGallery, type GalleryEntry } from '../api'
+import { fmtParams } from '../fmt'
 import { useStore } from '../store'
 import { ModelSearch } from './ModelSearch'
 
-const EXAMPLES = [
-  'Qwen/Qwen3-8B',
-  'openai-community/gpt2',
-  'meta-llama/Llama-3.1-8B',
-  'mistralai/Mixtral-8x7B-Instruct-v0.1',
-  'google/vit-base-patch16-224',
-  'Qwen/Qwen2.5-VL-3B-Instruct',
-]
-
 export function Landing() {
   const loadModel = useStore((s) => s.loadModel)
+  const [gallery, setGallery] = useState<GalleryEntry[] | null>(null)
+  useEffect(() => {
+    void fetchGallery().then(setGallery)
+  }, [])
+
+  const openFlow = (id: string) => {
+    void loadModel(id).then(async () => {
+      if ((useStore.getState().doc?.trace.length ?? 0) > 0) {
+        const { useFlowStore } = await import('../flow/flowStore')
+        useFlowStore.getState().activate()
+      }
+    })
+  }
+
   return (
     <div className="mm-landing">
-      <h1 className="mm-wordmark">modelmap</h1>
-      <p className="mm-tagline">
-        Paste a Hugging Face model id. Get a living map of the network — no weights downloaded.
-      </p>
-      <ModelSearch big />
-      <div className="mm-examples">
-        {EXAMPLES.map((id) => (
-          <button key={id} className="mm-example" onClick={() => void loadModel(id)}>
-            {id}
-          </button>
-        ))}
+      <div className="mm-landing-hero">
+        <h1 className="mm-wordmark">modelmap</h1>
+        <p className="mm-tagline">
+          Paste a Hugging Face model id. Get a living map of the network — no weights downloaded.
+        </p>
+        <ModelSearch big />
       </div>
+      <section className="mm-gallery" aria-label="Gallery">
+        {gallery === null && <p className="mm-gallery-loading">loading gallery…</p>}
+        {gallery?.map((g) => (
+          <article className={`mm-card ${g.cached ? '' : 'is-cold'}`} key={g.id}>
+            <button className="mm-card-main" onClick={() => void loadModel(g.id)}>
+              <span className="mm-card-id">{g.id}</span>
+              <span className="mm-card-blurb">{g.blurb}</span>
+              <span className="mm-card-meta">
+                {g.summary ? (
+                  <>
+                    <b>{fmtParams(g.summary.params_total)}</b> params · {g.summary.architecture ?? 'weights view'}
+                    {g.summary.fidelity !== 'full' && ` · ${g.summary.fidelity}`}
+                  </>
+                ) : (
+                  'first visit extracts it (a few seconds)'
+                )}
+              </span>
+            </button>
+            {(g.summary?.trace_steps ?? 1) > 0 && (
+              <button className="mm-card-flow" title="Replay the forward pass" onClick={() => openFlow(g.id)}>
+                ▶ flow
+              </button>
+            )}
+          </article>
+        ))}
+      </section>
+      <p className="mm-landing-foot">
+        Structure comes from a meta-device instantiation; shapes come from a traced fake forward pass. Any public repo works — gated ones after you add a token.
+      </p>
     </div>
   )
 }

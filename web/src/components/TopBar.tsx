@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
+import { getToken } from '../api'
 import { useFlowStore } from '../flow/flowStore'
 import { fmtParams } from '../fmt'
 import { useStore } from '../store'
+import { HelpOverlay } from './HelpOverlay'
 import { ModelSearch } from './ModelSearch'
+import { TokenPopover } from './TokenPopover'
 
 type Theme = 'system' | 'light' | 'dark'
 
@@ -20,8 +23,20 @@ export function TopBar() {
     () => (localStorage.getItem('mm-theme') as Theme) || 'system',
   )
   const [copied, setCopied] = useState(false)
+  const [tokenOpen, setTokenOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const setToast = useStore((s) => s.setToast)
 
   useEffect(() => applyTheme(theme), [theme])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
+      if (e.key === '?') setHelpOpen((v) => !v)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const cycleTheme = () => {
     const next: Theme = theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system'
@@ -33,8 +48,12 @@ export function TopBar() {
     try {
       await navigator.clipboard.writeText(location.href)
       setCopied(true)
+      setToast('Link copied — it reproduces this exact view')
       setTimeout(() => setCopied(false), 1600)
-    } catch { /* clipboard unavailable */ }
+    } catch {
+      // clipboard blocked (permissions / insecure context): the URL *is* the view
+      setToast('Copy the address bar — the URL reproduces this exact view')
+    }
   }
 
   return (
@@ -79,9 +98,24 @@ export function TopBar() {
           </button>
         </>
       )}
+      <span className="mm-topbar-rel">
+        <button
+          className={`mm-btn ${getToken() ? 'is-on' : ''}`}
+          onClick={() => setTokenOpen((v) => !v)}
+          title="Hugging Face token for gated / private repos"
+          aria-expanded={tokenOpen}
+        >
+          token
+        </button>
+        {tokenOpen && <TokenPopover onClose={() => setTokenOpen(false)} />}
+      </span>
       <button className="mm-btn" onClick={cycleTheme} title="Theme">
         {theme === 'system' ? 'auto' : theme}
       </button>
+      <button className="mm-btn" onClick={() => setHelpOpen(true)} title="Shortcuts (?)" aria-label="Help">
+        ?
+      </button>
+      {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
     </header>
   )
 }

@@ -11,9 +11,10 @@ with sync_playwright() as p:
 
     page.goto(BASE, wait_until="networkidle")
     check("landing renders wordmark", page.locator(".mm-wordmark").count() == 1)
-    check("landing has example chips", page.locator(".mm-example").count() >= 5)
+    page.wait_for_selector(".mm-card", timeout=20000)
+    check("landing has gallery cards", page.locator(".mm-card").count() >= 5)
 
-    page.locator(".mm-example", has_text="openai-community/gpt2").click()
+    page.locator(".mm-card-main", has_text="openai-community/gpt2").click()
     page.wait_for_selector(".react-flow__node", timeout=60000)
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(800)
