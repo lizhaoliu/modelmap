@@ -168,8 +168,17 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
             raise HTTPException(
                 422, f"extraction of '{model_id}' exceeded the worker's memory limit"
             )
-        status = 404 if "NotFound" in name else 403 if "Gated" in name else 422
-        raise HTTPException(status, f"could not extract '{model_id}': {name}: {e}")
+        msg = str(e)
+        low = msg.lower()
+        if "gated" in low or ("401" in msg and "token" in low):
+            raise HTTPException(
+                403,
+                f"'{model_id}' is a gated repo — accept its terms on huggingface.co and add "
+                "your HF token (top bar → token) to view it",
+            )
+        if "NotFound" in name or "not a valid model identifier" in msg or "404" in msg:
+            raise HTTPException(404, f"'{model_id}' was not found on the Hugging Face Hub")
+        raise HTTPException(422, f"could not extract '{model_id}': {name}: {msg}")
     finally:
         if owner:
             _release(key)

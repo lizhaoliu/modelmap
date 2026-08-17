@@ -1,0 +1,25 @@
+# Local production-shaped run:  docker compose up --build
+services:
+  modelmap:
+    build: .
+    ports:
+      - "7860:7860"
+    environment:
+      MODELMAP_WORKERS: "1"          # ~0.5 GB RSS per worker; parent is ~50 MB
+      MODELMAP_WARM: "1"             # pre-extract the gallery in the background
+      MODELMAP_TRUST_PROXY: "0"      # set 1 behind a reverse proxy that sets X-Forwarded-For
+      MODELMAP_RATE_PER_MIN: "20"
+      MODELMAP_MAX_INFLIGHT: "8"
+    volumes:
+      - modelmap-data:/data
+    # defense in depth: nothing here needs privileges, a writable rootfs, or extra caps
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    pids_limit: 256
+    restart: unless-stopped
+volumes:
+  modelmap-data:
