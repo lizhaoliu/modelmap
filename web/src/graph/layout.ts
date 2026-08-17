@@ -155,7 +155,7 @@ export async function layoutGraph(
         data: {
           g,
           repeat: index.repeatByRep.get(s.id),
-          stackOf: index.repeatByParent.get(s.id),
+          stackOf: index.repeatsByParent.get(s.id)?.[0],
           hasChildren: (index.children.get(s.id) ?? []).length > 0,
           expanded: isExpanded,
           dir,

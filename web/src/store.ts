@@ -36,7 +36,7 @@ function defaultExpanded(index: GraphIndex, doc: GraphDoc): Set<string> {
     const node = index.byId.get(id)
     if (!node) continue
     if (node.depth <= 1) out.add(id)
-    else if (isVLM && node.depth === 2 && !index.repeatByParent.has(id) && kids.length >= 2) out.add(id)
+    else if (isVLM && node.depth === 2 && !index.repeatsByParent.has(id) && kids.length >= 2) out.add(id)
   }
   out.add('')
   return out

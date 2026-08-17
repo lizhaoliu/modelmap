@@ -416,6 +416,32 @@ kbd {
   border-radius: 999px; padding: 1px 8px; white-space: nowrap;
 }
 
+/* ---------- cost lens ---------- */
+.mm-lens { display: flex; align-items: center; gap: 8px; }
+.mm-lens-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.mm-lens-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--muted);
+  padding: 4px 10px; border-right: 1px solid var(--line-soft);
+}
+.mm-lens-btn:last-child { border-right: none; }
+.mm-lens-btn:hover { color: var(--ink); }
+.mm-lens-btn.is-on { color: var(--flow-text); background: var(--flow-wash); }
+.mm-lens-assume { white-space: nowrap; }
+.mm-whatif { width: 360px; }
+.mm-whatif label { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; font-weight: 500; }
+.mm-whatif label b { font-family: 'IBM Plex Mono', monospace; font-weight: 500; color: var(--flow-text); }
+.mm-whatif input[type=range] { accent-color: var(--flow); width: 100%; }
+.mm-whatif input[type=number], .mm-whatif select {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--ink);
+  background: var(--code-bg); border: 1px solid var(--line-soft); border-radius: 7px; padding: 5px 8px;
+}
+/* heat wash: amber = share of the active lens metric (0–100 → alpha) */
+.mm-node.has-heat, .mm-container.has-heat {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--flow) calc(var(--heat, 0) * 1%), transparent);
+}
+.mm-container.has-heat { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--flow) calc(var(--heat, 0) * 0.35%), transparent), 0 3px 14px color-mix(in srgb, var(--ink) 7%, transparent); }
+.mm-cost dd { font-variant-numeric: tabular-nums; }
+
 /* ---------- toast / popover / help ---------- */
 .mm-toast {
   position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 60;

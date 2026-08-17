@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: node.attrs, MoE/norm classification fix (cache key includes this)
 
 # node kinds drive color, icon, and collapse defaults in the client
 KINDS = (

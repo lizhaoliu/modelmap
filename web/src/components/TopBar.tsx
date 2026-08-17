@@ -4,6 +4,7 @@ import { useFlowStore } from '../flow/flowStore'
 import { fmtParams } from '../fmt'
 import { useStore } from '../store'
 import { HelpOverlay } from './HelpOverlay'
+import { LensBar } from './LensBar'
 import { ModelSearch } from './ModelSearch'
 import { TokenPopover } from './TokenPopover'
 
@@ -74,6 +75,7 @@ export function TopBar() {
         </span>
       )}
       <div className="mm-topbar-center">{doc && <ModelSearch />}</div>
+      {doc && <LensBar />}
       {doc && (
         <>
           <span className={`mm-fidelity is-${doc.fidelity}`} title={doc.notes.join('\n') || 'traced fake forward completed'}>

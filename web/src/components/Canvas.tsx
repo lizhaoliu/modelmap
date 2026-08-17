@@ -9,6 +9,7 @@ import {
   useReactFlow,
   type Edge,
 } from '@xyflow/react'
+import { useCostStore } from '../analytics/costStore'
 import { buildFlowScript } from '../flow/beats'
 import { useFlowEngine } from '../flow/engine'
 import { useFlowStore } from '../flow/flowStore'
@@ -52,6 +53,8 @@ export function Canvas() {
   const { fitView, fitBounds } = useReactFlow()
   const pad = 0.12
 
+  const recompute = useCostStore((s) => s.recompute)
+  useEffect(() => recompute(doc, index), [doc, index, recompute])
   const [view, setView] = useState<View>({ nodes: [], edges: [], positions: {} })
   const lastModel = useRef<string | null>(null)
   const pulseRef = useRef<HTMLDivElement | null>(null)

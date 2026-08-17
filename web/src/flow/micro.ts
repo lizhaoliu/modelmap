@@ -43,7 +43,7 @@ function blockOf(node: GNode, index: GraphIndex): GNode | null {
   const hasAttn = (n: GNode) =>
     (index.children.get(n.id) ?? []).some((c) => c.kind === 'attention')
   if (hasAttn(node)) return node
-  const rep = index.repeatByParent.get(node.id)?.representative
+  const rep = index.repeatsByParent.get(node.id)?.[0]?.representative
   const repNode = rep ? index.byId.get(rep) : undefined
   return repNode && hasAttn(repNode) ? repNode : null
 }

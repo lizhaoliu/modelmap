@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from collections import defaultdict
 
 import torch
@@ -33,6 +34,9 @@ log = logging.getLogger(__name__)
 
 class UnsupportedArchitectureError(RuntimeError):
     pass
+
+
+_MOE_CLS = re.compile(r"(SparseMoe|Experts$|MoE$|MoeBlock$|MoEBlock$|MoeMLP$|MoELayer$|SparseMoeBlock)", re.I)
 
 
 def extract_graph(
@@ -183,15 +187,17 @@ def _classify(name: str, module: nn.Module) -> str:
         return "head"
     if "attention" in lcls or leaf in ("self_attn", "attn", "attention", "cross_attn"):
         return "attention"
-    if "moe" in lcls or leaf == "experts":
+    if "norm" in lcls or "norm" in leaf:  # before moe: Qwen3MoeRMSNorm is a norm
+        return "norm"
+    # the MoE block itself, or the (fused or ModuleList) experts container —
+    # not every class that merely carries "Moe" in its name (decoder layers, norms)
+    if _MOE_CLS.search(cls) or leaf == "experts":
         return "moe"
     if (
         "mlp" in lcls or "feedforward" in lcls or "intermediate" in lcls
         or "expert" in lcls or leaf in ("mlp", "ffn")
     ):
         return "mlp"
-    if "norm" in lcls or "norm" in leaf:
-        return "norm"
     if isinstance(module, nn.Linear) or cls == "Conv1D":  # transformers Conv1D ≡ linear
         return "linear"
     if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):

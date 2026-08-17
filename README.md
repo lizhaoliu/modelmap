@@ -36,7 +36,9 @@ docker compose up --build
   node for class, params (absolute + share), dtype, weight shapes with inline dim labels
   (`[151936 vocab × 4096 hidden]`), traced I/O shapes (`[1 batch × 7 seq × 4096 hidden]`), and a
   parameter treemap of its children, the module's own attributes (`in_features`, `eps`, kernel…)
-  and a link to its defining source line. Breadcrumb trail, semantic colors, light/dark, shareable
+  and a link to its defining source line. A **cost lens** (`params · compute · memory · kv`) re-encodes
+  the map with analytic MACs, activation and KV-cache bytes and active-params-per-token for MoE, all
+  re-derived live from a what-if bar (sequence length, batch, dtype). Breadcrumb trail, semantic colors, light/dark, shareable
   URLs that reproduce the exact view, keyboard-first (`?` lists shortcuts).
 - **Flow mode** — replays the traced forward pass: an amber pulse travels the graph in real
   execution order while a HUD narrates each step with true shapes and a plain-language caption.
@@ -60,6 +62,8 @@ docker compose up --build
 - [x] M2 — Explore mode
 - [x] M3 — Flow mode with captions
 - [x] M4 — micro-views, gallery, treemap, `uvx` packaging, hardened deploy-ready container
+- [x] M5 — Cost lens: compute / memory / KV analytics with a what-if bar (client-side, from traced shapes)
+- [ ] **M6 — Compare** *(next)*
 - [x] Deployed for evaluation on Google Cloud Run (free tier); see DEPLOY.md
 
 ## Development
@@ -69,6 +73,7 @@ uv run modelmap serve --port 7860     # API + built SPA
 cd web && npm run dev                 # Vite dev server on :5173, proxies /api
 
 uv run pytest                         # unit tests (collapse, hub retries, server behavior)
+(cd web && npm test)                  # vitest: cost-lens acceptance on real graph fixtures
 uv run python tests/e2e/test_explore.py   # browser acceptance suites (need a running server
 uv run python tests/e2e/test_flow.py      # on :7860, playwright, and a Chromium build)
 uv run python tests/e2e/test_m4.py

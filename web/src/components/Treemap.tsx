@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { fmtLens, lensValue } from '../analytics/cost'
+import { useCostStore } from '../analytics/costStore'
 import { fmtParams, leafName } from '../fmt'
 import { useStore } from '../store'
 import type { GNode } from '../types'
@@ -63,9 +65,13 @@ export function Treemap({ parent, overview = false }: { parent: string; overview
   const index = useStore((s) => s.index)
   const doc = useStore((s) => s.doc)
   const select = useStore((s) => s.select)
+  const lens = useCostStore((s) => s.lens)
+  const report = useCostStore((s) => s.report)
+  const metric = lens === 'none' ? 'params' : lens
+  const valueOf = (k: GNode) => lensValue(metric, k, report?.byNode.get(k.id))
   const cells = useMemo(() => {
     if (!index) return []
-    let kids = (index.children.get(parent) ?? []).filter((k) => k.params > 0)
+    let kids = (index.children.get(parent) ?? []).filter((k) => valueOf(k) > 0)
     if (overview) {
       const total = kids.reduce((a, k) => a + k.params, 0)
       const dominant = kids.find(
@@ -78,10 +84,11 @@ export function Treemap({ parent, overview = false }: { parent: string; overview
       }
     }
     const items = kids
-      .map((k) => ({ node: k, v: k.params * (index.repeatByRep.get(k.id)?.count ?? 1) }))
+      .map((k) => ({ node: k, v: valueOf(k) * (index.repeatByRep.get(k.id)?.count ?? 1) }))
       .sort((a, b) => b.v - a.v)
     return squarify(items, 0, 0, W, H)
-  }, [index, parent, overview])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, parent, overview, metric, report])
   if (!index || !doc || cells.length < 2) return null
   return (
     <figure className="mm-treemap">
@@ -99,19 +106,19 @@ export function Treemap({ parent, overview = false }: { parent: string; overview
               tabIndex={0}
               onKeyDown={(e) => e.key === 'Enter' && select(c.node.id)}
             >
-              <title>{`${c.node.id} · ${fmtParams(c.node.params)}${rep ? ` × ${rep.count}` : ''}`}</title>
+              <title>{`${c.node.id} · ${fmtLens(metric, valueOf(c.node))}${rep ? ` × ${rep.count}` : ''}`}</title>
               <rect x={c.x + 0.6} y={c.y + 0.6} width={Math.max(0, c.w - 1.2)} height={Math.max(0, c.h - 1.2)} rx="2.5" />
               {big && (
                 <>
                   <text x={c.x + 6} y={c.y + 13} className="mm-tm-name">{label}</text>
-                  <text x={c.x + 6} y={c.y + 24} className="mm-tm-val">{fmtParams(c.node.params * (rep?.count ?? 1))}</text>
+                  <text x={c.x + 6} y={c.y + 24} className="mm-tm-val">{metric === 'params' ? fmtParams(c.node.params * (rep?.count ?? 1)) : fmtLens(metric, valueOf(c.node) * (rep?.count ?? 1))}</text>
                 </>
               )}
             </g>
           )
         })}
       </svg>
-      <figcaption>parameters by child · click to select</figcaption>
+      <figcaption>{metric === 'params' ? 'parameters' : metric === 'compute' ? 'compute (MACs)' : metric === 'memory' ? 'activation memory' : 'KV cache'} by child · click to select</figcaption>
     </figure>
   )
 }

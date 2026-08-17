@@ -109,3 +109,12 @@ def test_gallery_and_health(client):
     assert {"id", "blurb", "cached", "summary"} <= set(g[0])
     h = client.get("/api/health").json()
     assert h["ok"] and "cache_entries" in h and "inflight" in h
+
+
+def test_cache_paths_keep_model_and_revision(monkeypatch, tmp_path):
+    monkeypatch.setenv("MODELMAP_CACHE", str(tmp_path))
+    cache.put("Qwen/Qwen3.8-27B", "main", _doc("Qwen/Qwen3.8-27B"))
+    cache.put("Qwen/Qwen3.8-27B", "v2", _doc("Qwen/Qwen3.8-27B"))
+    files = sorted(p.name for p in tmp_path.glob("*.json.gz"))
+    assert len(files) == 2 and all(f.startswith("Qwen--Qwen3.8-27B.") for f in files)
+    assert cache.has("Qwen/Qwen3.8-27B", "v2") and not cache.has("Qwen/Qwen3.8-27B", "other")

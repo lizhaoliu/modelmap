@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from modelmap.schema import SCHEMA_VERSION
+
 
 def cache_dir() -> Path:
     root = os.environ.get("MODELMAP_CACHE") or os.path.join(
@@ -25,17 +27,20 @@ def cache_dir() -> Path:
     return p
 
 
-def _stem(model_id: str, revision: str) -> Path:
-    key = hashlib.sha1(f"{model_id}@{revision}".encode()).hexdigest()[:16]
-    return cache_dir() / f"{model_id.replace('/', '--')}.{key}"
+def _stem(model_id: str, revision: str) -> str:
+    # string, not Path.with_suffix: dots in model ids ("Qwen3.8-27B") and the
+    # hash itself would otherwise be mistaken for suffixes and dropped
+    # the schema version is part of the key so an extractor upgrade re-extracts
+    key = hashlib.sha1(f"{model_id}@{revision}#v{SCHEMA_VERSION}".encode()).hexdigest()[:16]
+    return f"{model_id.replace('/', '--')}.{key}"
 
 
 def _path(model_id: str, revision: str) -> Path:
-    return _stem(model_id, revision).with_suffix(".json.gz")
+    return cache_dir() / f"{_stem(model_id, revision)}.json.gz"
 
 
 def _meta_path(model_id: str, revision: str) -> Path:
-    return _stem(model_id, revision).with_suffix(".meta.json")
+    return cache_dir() / f"{_stem(model_id, revision)}.meta.json"
 
 
 def has(model_id: str, revision: str) -> bool:

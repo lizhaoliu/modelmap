@@ -60,9 +60,9 @@ export interface GraphIndex {
   byId: Map<string, GNode>
   children: Map<string | null, GNode[]>
   repeatByRep: Map<string, Repeat>
-  /** container id → repeat among its children (a collapsed container with one
-   *  of these renders as a "×N" stack node) */
-  repeatByParent: Map<string, Repeat>
+  /** container id → repeats among its children (a collapsed container with any
+   *  renders as a "×N" stack node; DeepSeek's layers hold two runs: 3 + 58) */
+  repeatsByParent: Map<string, Repeat[]>
   traceByNode: Map<string, TraceStep>
   /** dim value → semantic label ("hidden", "vocab", …); see buildDimLabels */
   dimLabels: Map<number, string>
@@ -152,14 +152,15 @@ export function buildIndex(doc: GraphDoc): GraphIndex {
   }
   for (const list of children.values()) list.sort((a, b) => a.order - b.order)
   const repeatByRep = new Map(doc.repeats.map((r) => [r.representative, r]))
-  const repeatByParent = new Map(doc.repeats.map((r) => [r.parent, r]))
+  const repeatsByParent = new Map<string, Repeat[]>()
+  for (const r of doc.repeats) repeatsByParent.set(r.parent, [...(repeatsByParent.get(r.parent) ?? []), r])
   const traceByNode = new Map<string, TraceStep>()
   for (const t of doc.trace) if (!traceByNode.has(t.node)) traceByNode.set(t.node, t)
   return {
     byId,
     children,
     repeatByRep,
-    repeatByParent,
+    repeatsByParent,
     traceByNode,
     dimLabels: buildDimLabels(doc),
     // batch comes from the main (text / image) forward, not a separately traced vision tower
