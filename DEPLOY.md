@@ -75,14 +75,51 @@ tier under gVisor/Firecracker at the platform level.
   server negotiates on it.
 - `/assets/*` and `/fonts/*` are immutable (hashed / stable); `index.html` is `no-cache`.
 
-## Platform sketches (nothing is deployed yet)
+## Google Cloud Run (deployed 2026-08-17, free tier)
+
+What was run, in a fresh project linked to a billing account (the free tier still needs one):
+
+```bash
+gcloud projects create modelmap-XXXXXX && gcloud billing projects link modelmap-XXXXXX --billing-account=…
+gcloud config set project modelmap-XXXXXX
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+gcloud artifacts repositories create cloud-run-source-deploy --repository-format=docker --location=us-central1
+# new projects: Cloud Build runs as the compute default SA, which starts with no permissions
+SA="$(gcloud projects describe modelmap-XXXXXX --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+for r in roles/cloudbuild.builds.builder roles/run.builder roles/artifactregistry.writer roles/storage.objectViewer roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding modelmap-XXXXXX --member="serviceAccount:$SA" --role="$r"; done
+gcloud run deploy modelmap --source . --region us-central1 --allow-unauthenticated \
+  --memory 1Gi --cpu 1 --concurrency 40 --timeout 300 --min-instances 0 --max-instances 2 --port 7860 \
+  --set-env-vars MODELMAP_WORKERS=1,MODELMAP_TRUST_PROXY=1,MODELMAP_MAX_INFLIGHT=4
+```
+
+Measured there (1 vCPU, request-based CPU, `min-instances 0`):
+
+| | |
+|---|---|
+| Cached graph (gallery baked into the image) | ~120 ms end to end |
+| Landing + gallery interactive, first visit | ~5 s (2 MB app download; immutable-cached after) |
+| Gallery card → rendered graph | ~0.8 s |
+| **First** uncached extraction on a fresh instance | **30–40 s** — the worker's first `import torch` streams ~1 GB of image layers (Cloud Run lazy-loads the image) |
+| Subsequent uncached extractions on that instance | 4.5–7.5 s (~2× local; 1 slow vCPU) |
+| VLM (shallow twin) on a warm instance | ~7 s |
+
+Notes: instances keep their cache while alive (`cache_entries` grows), but every new instance
+starts with only the baked gallery. Runtime warming (`MODELMAP_WARM`) does not help here — CPU is
+throttled between requests — which is why the Dockerfile bakes the warmed gallery in. To remove
+the first-extraction penalty you'd pay for `--min-instances 1 --no-cpu-throttling` (~$10–15/mo);
+for a free trial, accept it. `--max-instances 2` caps any surprise spend. Tear down with
+`gcloud run services delete modelmap --region us-central1` or delete the project.
+
+## Other platforms
 
 Any host that runs a container works. Notes per popular target:
 
 - **Fly.io / Railway / Render**: `Dockerfile` as-is; attach a 1 GB volume at `/data`;
   set `MODELMAP_WARM=1`; 1 GB RAM machine → `MODELMAP_WORKERS=1`.
-- **Hugging Face Space (Docker)**: fits the theme; the Space port is 7860 already; expect
-  cold starts — warming helps a lot; keep `MODELMAP_WORKERS=1` on the free tier.
+- **Hugging Face Space (Docker)**: fits the theme; port 7860 already; `scripts/deploy_space.py`
+  creates and updates it. Docker Spaces now require a PRO subscription ($9/mo) — the free tier
+  only hosts static Spaces.
 - **VPS**: `docker compose up -d` behind Caddy/nginx; Caddy gives TLS for free.
 
 ## Publishing the CLI

@@ -60,7 +60,7 @@ docker compose up --build
 - [x] M2 — Explore mode
 - [x] M3 — Flow mode with captions
 - [x] M4 — micro-views, gallery, treemap, `uvx` packaging, hardened deploy-ready container
-- [ ] Not deployed anywhere yet (by choice); see DEPLOY.md when ready
+- [x] Deployed for evaluation on Google Cloud Run (free tier); see DEPLOY.md
 
 ## Development
 
