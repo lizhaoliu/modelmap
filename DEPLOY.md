@@ -38,7 +38,7 @@ Rule of thumb: **1 GB RAM per worker + 0.5 GB headroom.** A 1 GB box runs
 | `MODELMAP_MAX_INFLIGHT` | `8` | distinct extractions queued+running before `429 Retry-After` |
 | `MODELMAP_RATE_PER_MIN` / `MODELMAP_RATE_BURST` | `20` / `10` | per-client budget for *uncached* extractions and Hub searches (cached hits are never limited) |
 | `MODELMAP_TRUST_PROXY` | `0` | set `1` behind a reverse proxy so `X-Forwarded-For` identifies clients |
-| `MODELMAP_WORKER_MEM_MB` | `4096` | `RLIMIT_AS` for each worker; a hostile repo can at worst kill its own worker |
+| `MODELMAP_WORKER_MEM_MB` | `4096` | `RLIMIT_AS` (virtual) for each worker; a hostile repo can at worst kill its own worker, and the pool rebuilds itself. Workers are recycled every 64 tasks. Measured peaks: ~0.7 GB (text), ~2.2 GB (27B VLM twin) |
 | `MODELMAP_WARM` | `0` | pre-extract the landing gallery in a background thread on startup |
 | `MODELMAP_CACHE` | `~/.cache/modelmap` (image: `/data/graphs`) | graph cache directory |
 | `MODELMAP_CACHE_MAX_AGE` | `300` | `Cache-Control: max-age` for cached graphs (a `revision=main` repo can move) |
@@ -52,9 +52,10 @@ Extraction handles **attacker-chosen input** (any public repo id), so:
 - Repos requiring `trust_remote_code` are refused server-side, unconditionally; they get the
   structural weights view built from safetensors headers alone. Only the CLI (`modelmap dump
   --trust-remote-code`) can opt in, on a machine you control.
-- Each extraction runs in a **spawned worker process** with `RLIMIT_AS`, `RLIMIT_CPU`, one
-  thread, and a hard wall-clock timeout; a timed-out or crashed worker is abandoned and the
-  pool rebuilt. Faults never reach the API process.
+- Each extraction runs in a **spawned worker process** with `RLIMIT_AS`, one thread, and a
+  hard wall-clock timeout; a timed-out or crashed worker is abandoned and the pool rebuilt
+  (there is deliberately no `RLIMIT_CPU`: it is a per-process lifetime cap, wrong for a pool
+  worker that serves many tasks). Faults never reach the API process.
 - The container runs **non-root, read-only rootfs, `cap_drop: ALL`, `no-new-privileges`**,
   with the only writable path a data volume. Nothing in the image is a secret.
 - Egress needed: `huggingface.co` and its CDN (`*.hf.co`) only. If your platform supports

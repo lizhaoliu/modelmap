@@ -118,3 +118,25 @@ def test_cache_paths_keep_model_and_revision(monkeypatch, tmp_path):
     files = sorted(p.name for p in tmp_path.glob("*.json.gz"))
     assert len(files) == 2 and all(f.startswith("Qwen--Qwen3.8-27B.") for f in files)
     assert cache.has("Qwen/Qwen3.8-27B", "v2") and not cache.has("Qwen/Qwen3.8-27B", "other")
+
+
+def test_broken_pool_is_rebuilt_on_submit(client, monkeypatch):
+    """A worker that died (memory cap, native fault) must not 500 every later request."""
+    from concurrent.futures.process import BrokenProcessPool
+
+    class Broken:
+        def submit(self, *a, **k):
+            raise BrokenProcessPool("child died")
+
+    good = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    state = {"pool": Broken(), "resets": 0}
+    monkeypatch.setattr(server, "_get_pool", lambda: state["pool"])
+
+    def reset():
+        state["resets"] += 1
+        state["pool"] = good
+
+    monkeypatch.setattr(server, "_reset_pool", reset)
+    assert client.get("/api/graph/broken/pool").status_code == 200
+    assert state["resets"] == 1
+    good.shutdown(wait=False)

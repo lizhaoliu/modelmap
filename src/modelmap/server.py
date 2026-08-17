@@ -43,7 +43,8 @@ def _make_pool() -> concurrent.futures.ProcessPoolExecutor:
         max_workers=settings.workers,
         mp_context=multiprocessing.get_context("spawn"),
         initializer=_worker_init,
-        initargs=(settings.worker_mem_mb, settings.extraction_timeout_s),
+        initargs=(settings.worker_mem_mb,),
+        max_tasks_per_child=64,  # recycle workers: bounds any slow memory growth
     )
 
 
@@ -58,18 +59,23 @@ def _get_pool() -> concurrent.futures.ProcessPoolExecutor:
 def _reset_pool() -> None:
     # a timed-out worker can't be killed through the executor API; abandon the
     # pool (the stuck process dies on its own or at exit) and start fresh
-    global _pool
     with _pool_lock:
-        if _pool is not None:
-            _pool.shutdown(wait=False, cancel_futures=True)
-        _pool = _make_pool()
+        _reset_pool_locked()
 
 
-def _worker_init(mem_mb: int, timeout_s: int) -> None:
+def _reset_pool_locked() -> None:
+    global _pool
+    if _pool is not None:
+        _pool.shutdown(wait=False, cancel_futures=True)
+    _pool = _make_pool()
+
+
+def _worker_init(mem_mb: int) -> None:
     """Sandbox-lite for extraction processes: quiet, single-threaded, and
-    hard-capped on address space and CPU time so a hostile repo can at worst
-    kill its own worker. Platform-level isolation (container, no secrets,
-    egress limited to the Hub) is documented in DEPLOY.md."""
+    hard-capped on address space so a hostile repo can at worst kill its own
+    worker; runaway *time* is bounded by the wall-clock timeout + pool reset
+    (RLIMIT_CPU would be a per-process lifetime cap, wrong for a pool worker).
+    Platform-level isolation is documented in DEPLOY.md."""
     import os
 
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -91,8 +97,6 @@ def _worker_init(mem_mb: int, timeout_s: int) -> None:
 
         cap = mem_mb * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
-        cpu = timeout_s + 30
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
     except (ImportError, ValueError, OSError) as e:  # non-POSIX or disallowed
         log.warning("worker rlimits not applied: %s", e)
 
@@ -134,7 +138,13 @@ def _submit_shared(key: str, model_id: str, revision: str, token: str | None):
                 "the extractor is busy; try again in a few seconds",
                 headers={"Retry-After": "5"},
             )
-        fut = _get_pool().submit(_extract_job, model_id, revision, token)
+        try:
+            fut = _get_pool().submit(_extract_job, model_id, revision, token)
+        except concurrent.futures.process.BrokenProcessPool:
+            # a worker died (memory cap, native fault): rebuild once and retry
+            log.warning("extraction pool was broken; rebuilding")
+            _reset_pool()
+            fut = _get_pool().submit(_extract_job, model_id, revision, token)
         _inflight[key] = fut
         return fut, True
 
