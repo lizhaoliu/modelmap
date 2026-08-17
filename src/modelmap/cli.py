@@ -40,7 +40,8 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("serve", help="run the server (API + web app)")
     s.add_argument("--host", default=os.environ.get("MODELMAP_HOST", "127.0.0.1"))
-    s.add_argument("--port", type=int, default=int(os.environ.get("MODELMAP_PORT", "7860")))
+    # $PORT is the Cloud Run / Heroku convention; MODELMAP_PORT wins if both are set
+    s.add_argument("--port", type=int, default=int(os.environ.get("MODELMAP_PORT") or os.environ.get("PORT") or "7860"))
     s.add_argument("--open", action="store_true", help="open the browser once the server is up")
     s.add_argument("--warm", action="store_true", help="pre-extract the gallery in the background")
 
@@ -54,7 +55,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd is None:  # bare `modelmap`: the uvx experience
         args.cmd, args.host, args.port, args.open, args.warm = (
             "serve", os.environ.get("MODELMAP_HOST", "127.0.0.1"),
-            int(os.environ.get("MODELMAP_PORT", "7860")), True, False,
+            int(os.environ.get("MODELMAP_PORT") or os.environ.get("PORT") or "7860"), True, False,
         )
 
     if args.cmd == "dump":

@@ -28,8 +28,7 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HUB_DISABLE_PROGRESS_BARS=1 \
     # conservative defaults for a small box; override at run time
     MODELMAP_WORKERS=1 \
-    MODELMAP_HOST=0.0.0.0 \
-    MODELMAP_PORT=7860
+    MODELMAP_HOST=0.0.0.0
 
 WORKDIR /app
 # dependency layer first (cached across source changes)
@@ -44,6 +43,13 @@ RUN uv sync --frozen --no-dev
 # uid 1000 is the user Hugging Face Docker Spaces run as; harmless elsewhere
 RUN useradd -m -u 1000 -d /data modelmap && mkdir -p /data/graphs /data/hf && chown -R modelmap:modelmap /data
 USER modelmap
+
+# Bake the warmed gallery into the image (WARM=0 to skip): serverless hosts
+# start cold with no disk and throttle CPU between requests, so a pre-warmed
+# cache is the difference between an instant gallery and 20 s of extraction
+# on every cold start. Must happen before VOLUME (later writes are discarded).
+ARG WARM=1
+RUN if [ "$WARM" = "1" ]; then /app/.venv/bin/modelmap warm; fi
 VOLUME ["/data"]
 EXPOSE 7860
 

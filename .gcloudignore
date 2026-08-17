@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+web/node_modules
+web/dist
+src/modelmap/web
+dist
+tests
+docs
+*.graph.json
+.modelmap-cache
+__pycache__
+deploy
+scripts
