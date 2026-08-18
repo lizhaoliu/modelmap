@@ -13,6 +13,7 @@ with sync_playwright() as p:
     check("landing renders wordmark", page.locator(".mm-wordmark").count() == 1)
     page.wait_for_selector(".mm-card", timeout=20000)
     check("landing has gallery cards", page.locator(".mm-card").count() >= 5)
+    check("dark theme by default", page.evaluate("document.documentElement.dataset.theme") == "dark")
 
     page.locator(".mm-card-main", has_text="openai-community/gpt2").click()
     page.wait_for_selector(".react-flow__node", timeout=60000)

@@ -43,7 +43,11 @@ export async function searchModels(q: string, limit = 8): Promise<SearchHit[]> {
 
 export interface GalleryEntry {
   id: string
-  blurb: string
+  blurb?: string
+  pipeline_tag?: string | null
+  downloads?: number | null
+  likes?: number | null
+  architecture?: string | null
   cached: boolean
   summary: {
     architecture: string | null
@@ -54,9 +58,13 @@ export interface GalleryEntry {
   } | null
 }
 
-export async function fetchGallery(): Promise<GalleryEntry[]> {
+export interface Gallery {
+  trending: GalleryEntry[]
+  classics: GalleryEntry[]
+}
+export async function fetchGallery(): Promise<Gallery> {
   const res = await fetch('/api/gallery')
-  if (!res.ok) return []
+  if (!res.ok) return { trending: [], classics: [] }
   return res.json()
 }
 

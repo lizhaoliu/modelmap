@@ -104,9 +104,13 @@ def test_tokened_requests_bypass_cache_and_are_private(client):
     assert not cache.has("priv/m", "main")
 
 
-def test_gallery_and_health(client):
+def test_gallery_and_health(client, monkeypatch):
+    import modelmap.server as srv
+    monkeypatch.setattr(srv, "trending", lambda: [{"id": "t/one", "pipeline_tag": "text-generation", "architecture": "X"}])
     g = client.get("/api/gallery").json()
-    assert {"id", "blurb", "cached", "summary"} <= set(g[0])
+    assert set(g) == {"trending", "classics"}
+    assert {"id", "blurb", "cached", "summary"} <= set(g["classics"][0])
+    assert g["trending"][0]["id"] == "t/one" and g["trending"][0]["cached"] is False
     h = client.get("/api/health").json()
     assert h["ok"] and "cache_entries" in h and "inflight" in h
 

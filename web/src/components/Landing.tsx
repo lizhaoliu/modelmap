@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { fetchGallery, gotoCompare, type GalleryEntry } from '../api'
-import { fmtParams } from '../fmt'
+import { fetchGallery, gotoCompare, type Gallery, type GalleryEntry } from '../api'
+import { fmtCount, fmtParams } from '../fmt'
 import { useStore } from '../store'
 import { ModelSearch } from './ModelSearch'
 
 export function Landing() {
   const loadModel = useStore((s) => s.loadModel)
-  const [gallery, setGallery] = useState<GalleryEntry[] | null>(null)
+  const [gallery, setGallery] = useState<Gallery | null>(null)
   const [cmpA, setCmpA] = useState('')
   useEffect(() => {
     void fetchGallery().then(setGallery)
@@ -30,32 +30,23 @@ export function Landing() {
         </p>
         <ModelSearch big />
       </div>
-      <section className="mm-gallery" aria-label="Gallery">
-        {gallery === null && <p className="mm-gallery-loading">loading gallery…</p>}
-        {gallery?.map((g) => (
-          <article className={`mm-card ${g.cached ? '' : 'is-cold'}`} key={g.id}>
-            <button className="mm-card-main" onClick={() => void loadModel(g.id)}>
-              <span className="mm-card-id">{g.id}</span>
-              <span className="mm-card-blurb">{g.blurb}</span>
-              <span className="mm-card-meta">
-                {g.summary ? (
-                  <>
-                    <b>{fmtParams(g.summary.params_total)}</b> params · {g.summary.architecture ?? 'weights view'}
-                    {g.summary.fidelity !== 'full' && ` · ${g.summary.fidelity}`}
-                  </>
-                ) : (
-                  'first visit extracts it (a few seconds)'
-                )}
-              </span>
-            </button>
-            {(g.summary?.trace_steps ?? 1) > 0 && (
-              <button className="mm-card-flow" title="Replay the forward pass" onClick={() => openFlow(g.id)}>
-                ▶ flow
-              </button>
-            )}
-          </article>
-        ))}
-      </section>
+      {gallery === null && <p className="mm-gallery-loading">loading gallery…</p>}
+      {gallery && gallery.trending.length > 0 && (
+        <section className="mm-gallery-block" aria-label="Trending on Hugging Face">
+          <h2 className="mm-gallery-h">Trending on Hugging Face <span className="mm-dim">right now · ungated, transformers-loadable</span></h2>
+          <div className="mm-gallery">
+            {gallery.trending.map((g, i) => <Card key={g.id} g={g} rank={i + 1} loadModel={loadModel} openFlow={openFlow} />)}
+          </div>
+        </section>
+      )}
+      {gallery && (
+        <section className="mm-gallery-block" aria-label="Classics">
+          <h2 className="mm-gallery-h">Classics <span className="mm-dim">reference architectures, always instant</span></h2>
+          <div className="mm-gallery">
+            {gallery.classics.map((g) => <Card key={g.id} g={g} loadModel={loadModel} openFlow={openFlow} />)}
+          </div>
+        </section>
+      )}
       <section className="mm-cmp-entry" aria-label="Compare two models">
         <span className="mm-cmp-entry-label">compare</span>
         <ModelSearch placeholder={cmpA || 'first model'} onPick={(id) => setCmpA(id)} />
@@ -67,5 +58,39 @@ export function Landing() {
         Structure comes from a meta-device instantiation; shapes come from a traced fake forward pass. Any public repo works — gated ones after you add a token.
       </p>
     </div>
+  )
+}
+
+function Card({ g, rank, loadModel, openFlow }: { g: GalleryEntry; rank?: number; loadModel: (id: string) => Promise<void>; openFlow: (id: string) => void }) {
+  const blurb =
+    g.blurb ??
+    [g.pipeline_tag, g.downloads != null && `↓ ${fmtCount(g.downloads)}`, g.likes != null && `♥ ${fmtCount(g.likes)}`]
+      .filter(Boolean)
+      .join(' · ')
+  return (
+    <article className={`mm-card ${g.cached ? '' : 'is-cold'}`}>
+      <button className="mm-card-main" onClick={() => void loadModel(g.id)}>
+        <span className="mm-card-id">
+          {rank != null && <i className="mm-card-rank">{rank}</i>}
+          {g.id}
+        </span>
+        <span className="mm-card-blurb">{blurb}</span>
+        <span className="mm-card-meta">
+          {g.summary ? (
+            <>
+              <b>{fmtParams(g.summary.params_total)}</b> params · {g.summary.architecture ?? 'weights view'}
+              {g.summary.fidelity !== 'full' && ` · ${g.summary.fidelity}`}
+            </>
+          ) : (
+            <>{g.architecture ? `${g.architecture} · ` : ''}first visit extracts it (a few seconds)</>
+          )}
+        </span>
+      </button>
+      {(g.summary?.trace_steps ?? 1) > 0 && (
+        <button className="mm-card-flow" title="Replay the forward pass" onClick={() => openFlow(g.id)}>
+          ▶ flow
+        </button>
+      )}
+    </article>
   )
 }

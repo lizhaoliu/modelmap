@@ -182,7 +182,14 @@ kbd {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px; width: min(1000px, 100%);
 }
-.mm-gallery-loading { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: 0.85rem; }
+.mm-gallery-loading { text-align: center; color: var(--muted); font-size: 0.85rem; }
+.mm-gallery-block { width: min(1000px, 100%); display: flex; flex-direction: column; gap: 10px; }
+.mm-gallery-h { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 600; font-size: 1.05rem; margin: 0 0 0 2px; }
+.mm-gallery-h .mm-dim { font-family: 'IBM Plex Mono', monospace; font-weight: 400; font-size: 0.72rem; margin-left: 8px; }
+.mm-card-rank {
+  font-style: normal; font-size: 0.68rem; color: var(--flow-text); background: var(--flow-wash);
+  border: 1px solid var(--flow); border-radius: 999px; padding: 0 6px; margin-right: 8px; vertical-align: 1px;
+}
 .mm-card {
   display: flex; align-items: stretch;
   background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px;

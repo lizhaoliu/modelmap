@@ -15,7 +15,8 @@ with sync_playwright() as p:
     page.wait_for_selector(".mm-card", timeout=20000)
     n = page.locator(".mm-card").count()
     check("gallery renders cards", n >= 6, f"{n} cards")
-    check("cards show cached summaries", page.locator(".mm-card-meta b").count() >= 4)
+    check("trending section present", page.locator(".mm-gallery-h", has_text="Trending").count() == 1 and page.locator(".mm-card-rank").count() >= 3)
+    check("classic cards show cached summaries", page.locator(".mm-card-meta b").count() >= 4)
     page.screenshot(path=f"{SHOTS}/m4-1-landing.png")
 
     # help overlay via ?

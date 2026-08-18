@@ -23,7 +23,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
 from modelmap import __version__, cache
-from modelmap.gallery import GALLERY
+from modelmap.gallery import CLASSICS, trending, trending_ids
 from modelmap.ratelimit import RateLimiter
 from modelmap.schema import SCHEMA_VERSION
 from modelmap.settings import settings
@@ -227,7 +227,7 @@ def warm(model_ids: list[str]) -> None:
 async def _lifespan(app: FastAPI):
     if settings.warm_on_start:
         threading.Thread(
-            target=warm, args=([g["id"] for g in GALLERY],), name="warm", daemon=True
+            target=lambda: warm([g["id"] for g in CLASSICS] + trending_ids()), name="warm", daemon=True
         ).start()
     yield
     if _pool is not None:
@@ -304,13 +304,19 @@ def graph(
     return _graph_response(raw, request, cacheable=x_hf_token is None)
 
 
-@app.get("/api/gallery")
-def gallery():
+def _with_cache(entries: list[dict]) -> list[dict]:
     out = []
-    for g in GALLERY:
+    for g in entries:
         s = cache.summary(g["id"], "main") if cache.has(g["id"], "main") else None
         out.append({**g, "cached": s is not None, "summary": s})
     return out
+
+
+@app.get("/api/gallery")
+def gallery():
+    """Trending on the Hub right now (ungated transformers repos, deduped,
+    refreshed hourly) plus the classics; each with its cache status."""
+    return {"trending": _with_cache(trending()), "classics": _with_cache(CLASSICS)}
 
 
 @app.get("/api/search")

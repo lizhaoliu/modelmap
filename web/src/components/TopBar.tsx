@@ -23,7 +23,7 @@ export function TopBar() {
   const activateFlow = useFlowStore((s) => s.activate)
   const deactivateFlow = useFlowStore((s) => s.deactivate)
   const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem('mm-theme') as Theme) || 'system',
+    () => (localStorage.getItem('mm-theme') as Theme) || 'dark', // dark by default
   )
   const [copied, setCopied] = useState(false)
   const [tokenOpen, setTokenOpen] = useState(false)
@@ -45,7 +45,7 @@ export function TopBar() {
   }, [])
 
   const cycleTheme = () => {
-    const next: Theme = theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system'
+    const next: Theme = theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark'
     localStorage.setItem('mm-theme', next)
     setTheme(next)
   }

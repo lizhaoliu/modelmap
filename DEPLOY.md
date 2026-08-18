@@ -110,6 +110,8 @@ Custom domain: `modelmap.cc` is mapped with `gcloud beta run domain-mappings cre
 for the deploying Google account); DNS at the registrar carries Google's four A / four AAAA records
 for `@` and `CNAME www → ghs.googlehosted.com`. Google issues and renews the TLS certificate.
 
+The image bake (`modelmap warm` at build time) covers the classics *and* whatever is trending on the Hub at build time; the landing page refreshes the trending list hourly at runtime, and newer entries extract on first visit.
+
 Notes: instances keep their cache while alive (`cache_entries` grows), but every new instance
 starts with only the baked gallery. Runtime warming (`MODELMAP_WARM`) does not help here — CPU is
 throttled between requests — which is why the Dockerfile bakes the warmed gallery in. To remove

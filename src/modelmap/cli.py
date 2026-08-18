@@ -83,10 +83,12 @@ def main(argv: list[str] | None = None) -> None:
         for note in g.notes:
             print(f"  note: {note}", file=sys.stderr)
     elif args.cmd == "warm":
-        from modelmap.gallery import GALLERY_IDS
+        from modelmap.gallery import CLASSIC_IDS, trending_ids
         from modelmap.server import warm
 
-        warm(args.model_ids or GALLERY_IDS)
+        # default: the classics plus whatever is trending right now (so a
+        # container image bakes today's trending models in, too)
+        warm(args.model_ids or (CLASSIC_IDS + trending_ids()))
     else:
         import uvicorn
 
