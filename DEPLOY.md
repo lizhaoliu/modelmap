@@ -105,6 +105,11 @@ Measured there (1 vCPU, request-based CPU, `min-instances 0`):
 | Subsequent uncached extractions on that instance | 4.5–7.5 s (~2× local; 1 slow vCPU) |
 | VLM (shallow twin) on a warm instance | ~7 s |
 
+Custom domain: `modelmap.cc` is mapped with `gcloud beta run domain-mappings create --service modelmap
+--domain modelmap.cc --region us-central1` (after a one-time Search Console verification of the domain
+for the deploying Google account); DNS at the registrar carries Google's four A / four AAAA records
+for `@` and `CNAME www → ghs.googlehosted.com`. Google issues and renews the TLS certificate.
+
 Notes: instances keep their cache while alive (`cache_entries` grows), but every new instance
 starts with only the baked gallery. Runtime warming (`MODELMAP_WARM`) does not help here — CPU is
 throttled between requests — which is why the Dockerfile bakes the warmed gallery in. To remove

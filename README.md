@@ -8,7 +8,7 @@ the model on PyTorch's meta device, runs a hooked fake forward pass to capture r
 execution order and tensor shapes, and serves the result as a compact hierarchical graph.
 An 8B or 671B model costs the same few seconds; the graph ships as ~10 KB gzipped.
 
-**Live demo:** https://modelmap-304800829613.us-central1.run.app (free-tier Cloud Run: cached models are instant; the first uncached model on a cold instance takes ~30 s)
+**Live demo:** https://modelmap.cc (free-tier Cloud Run: cached models are instant; the first uncached model on a cold instance takes ~30 s)
 
 Design doc: [docs/design.html](docs/design.html) · Deployment: [DEPLOY.md](DEPLOY.md) · Extending: [EXTENDING.md](EXTENDING.md)
 
