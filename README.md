@@ -8,6 +8,8 @@ the model on PyTorch's meta device, runs a hooked fake forward pass to capture r
 execution order and tensor shapes, and serves the result as a compact hierarchical graph.
 An 8B or 671B model costs the same few seconds; the graph ships as ~10 KB gzipped.
 
+**Live demo:** https://modelmap-304800829613.us-central1.run.app (free-tier Cloud Run: cached models are instant; the first uncached model on a cold instance takes ~30 s)
+
 Design doc: [docs/design.html](docs/design.html) · Deployment: [DEPLOY.md](DEPLOY.md) · Extending: [EXTENDING.md](EXTENDING.md)
 
 ## Run it
@@ -86,3 +88,7 @@ uv run python tests/e2e/test_m4.py
 
 Layout: `src/modelmap/` (extractor, server, CLI) · `web/` (React + React Flow + elkjs SPA,
 built into `src/modelmap/web/` and shipped in the wheel) · `tests/` · `docs/design.html`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
