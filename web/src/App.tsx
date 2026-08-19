@@ -4,6 +4,7 @@ import { Canvas } from './components/Canvas'
 import { CompareView } from './components/CompareView'
 import { Inspector } from './components/Inspector'
 import { Landing } from './components/Landing'
+import { Sheet } from './components/Sheet'
 import { TopBar } from './components/TopBar'
 import { useStore } from './store'
 
@@ -95,7 +96,9 @@ export default function App() {
           ) : doc ? (
             <>
               <Canvas />
-              <Inspector />
+              <Sheet>
+                <Inspector />
+              </Sheet>
             </>
           ) : (
             !loading && !error && <Landing />

@@ -7,6 +7,7 @@ import { fmtParams, leafName } from '../fmt'
 import { StoreContext, type GraphStore } from '../store'
 import type { GraphDoc, GraphIndex } from '../types'
 import { Canvas, LinkGroup } from './Canvas'
+import { Sheet } from './Sheet'
 import { Shape } from './Shape'
 
 const CFG_ROWS: [string, string[]][] = [
@@ -172,7 +173,11 @@ export function CompareView({ idA, idB }: { idA: string; idB: string }) {
           <div className="mm-cmp-divider" />
           <Side store={b} id="b" group={group} />
         </div>
-        <DiffInspector pair={pair} a={indexA} b={indexB} />
+        <StoreContext.Provider value={a}>
+          <Sheet title={pair ? (pair.a ? pair.a.id.split('.').pop() : pair.b?.id.split('.').pop()) : 'differences'}>
+            <DiffInspector pair={pair} a={indexA} b={indexB} />
+          </Sheet>
+        </StoreContext.Provider>
       </div>
     </div>
   )

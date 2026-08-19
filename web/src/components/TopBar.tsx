@@ -86,7 +86,7 @@ export function TopBar() {
       {!inCompare && doc && <LensBar />}
       {!inCompare && doc && (
         <span className="mm-topbar-rel">
-          <button className={`mm-btn ${cmpOpen ? 'is-on' : ''}`} onClick={() => setCmpOpen((v) => !v)} title="Compare this model with another">
+          <button className={`mm-btn mm-btn-cmp ${cmpOpen ? 'is-on' : ''}`} onClick={() => setCmpOpen((v) => !v)} title="Compare this model with another">
             vs…
           </button>
           {cmpOpen && (
@@ -116,14 +116,14 @@ export function TopBar() {
               ▶ flow
             </button>
           )}
-          <button className="mm-btn" onClick={share}>
+          <button className="mm-btn mm-btn-share" onClick={share}>
             {copied ? 'copied ✓' : 'share'}
           </button>
         </>
       )}
       <span className="mm-topbar-rel">
         <button
-          className={`mm-btn ${getToken() ? 'is-on' : ''}`}
+          className={`mm-btn mm-btn-token ${getToken() ? 'is-on' : ''}`}
           onClick={() => setTokenOpen((v) => !v)}
           title="Hugging Face token for gated / private repos"
           aria-expanded={tokenOpen}
@@ -132,7 +132,7 @@ export function TopBar() {
         </button>
         {tokenOpen && <TokenPopover onClose={() => setTokenOpen(false)} />}
       </span>
-      <button className="mm-btn" onClick={cycleTheme} title="Theme">
+      <button className="mm-btn mm-btn-theme" onClick={cycleTheme} title="Theme">
         {theme === 'system' ? 'auto' : theme}
       </button>
       <button className="mm-btn" onClick={() => setHelpOpen(true)} title="Shortcuts (?)" aria-label="Help">

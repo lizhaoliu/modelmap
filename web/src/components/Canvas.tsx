@@ -18,6 +18,7 @@ import { edgeTypes } from '../graph/edges'
 import { nodeTypes } from '../graph/nodes'
 import { useStore } from '../store'
 import type { Kind } from '../types'
+import { useIsMobile } from '../useMobile'
 import { Breadcrumb } from './Breadcrumb'
 import { FlowBar } from './FlowBar'
 
@@ -82,11 +83,17 @@ export function Canvas({
   const { fitView, fitBounds, setViewport } = useReactFlow()
   const pad = 0.12
   useEffect(() => (link ? link.group.register(link.id, (v) => setViewport(v)) : undefined), [link, setViewport])
+  useEffect(() => {
+    const on = () => fitView({ padding: pad, duration: 200 })
+    window.addEventListener('mm:refit', on)
+    return () => window.removeEventListener('mm:refit', on)
+  }, [fitView, pad])
 
   const recompute = useCostStore((s) => s.recompute)
   useEffect(() => { if (costs) recompute(doc, index) }, [doc, index, recompute, costs])
   const [view, setView] = useState<View>({ nodes: [], edges: [], positions: {} })
   const lastModel = useRef<string | null>(null)
+  const mobile = useIsMobile()
   const pulseRef = useRef<HTMLDivElement | null>(null)
 
   const flowActive = useFlowStore((s) => s.active)
@@ -182,7 +189,7 @@ export function Canvas({
         elementsSelectable
       >
         <Background variant={BackgroundVariant.Dots} gap={26} size={1.2} className="mm-bg" />
-        <MiniMap
+        {!mobile && <MiniMap
           pannable
           zoomable
           className="mm-minimap"
@@ -191,7 +198,7 @@ export function Canvas({
             return (data?.g && KIND_HEX[data.g.kind]) || '#AAB4C2'
           }}
           nodeStrokeWidth={0}
-        />
+        />}
         <Controls showInteractive={false} className="mm-controls" />
         {flowActive && flowEnabled && (
           <ViewportPortal>
