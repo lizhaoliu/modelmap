@@ -84,7 +84,7 @@ tier under gVisor/Firecracker at the platform level.
   server negotiates on it.
 - `/assets/*` and `/fonts/*` are immutable (hashed / stable); `index.html` is `no-cache`.
 
-## Google Cloud Run (deployed 2026-08-17, free tier)
+## Google Cloud Run (deployed 2026-08-17, free tier; v0.2.0 M7/M8 redeployed 2026-08-19 with the same recipe — build with `gcloud builds submit --tag …/modelmap:latest .` then `gcloud run deploy modelmap --image …`)
 
 What was run, in a fresh project linked to a billing account (the free tier still needs one):
 
