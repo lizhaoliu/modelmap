@@ -90,20 +90,24 @@ def extract_graph(
         notes.append("plugins: " + ", ".join(plugins))
     src = parse_model_id(model_id, allow_local=allow_local)
 
-    # one listing tells us the checkpoint flavour (and the GGUF variants)
-    try:
-        files = _list_files(src, revision, token)
-    except Exception as e:
+    # The file listing is a Hub *API* call (rate-limited per IP, and a hosted
+    # server shares its egress IP); config.json is a plain file fetch. So list
+    # only when the id asks for it: a variant, a GGUF-looking repo name, or a
+    # local path (free) — otherwise only if the config turns out unloadable.
+    files: list[str] | None = None
+    if src.local or src.variant or "gguf" in src.repo.lower():
+        try:
+            files = _list_files(src, revision, token)
+        except Exception as e:
+            if src.variant:
+                raise
+            log.warning("could not list files for %s: %s", src.repo, e)
+            files = []
+        variants = gguf.variants_of(files)
+        if variants and (src.variant or _weights_format(files) != "safetensors"):
+            return _extract_gguf(src, revision, token, files, variants, seq_len, notes)
         if src.variant:
-            raise
-        log.warning("could not list files for %s: %s", src.repo, e)
-        files = []
-    fmt = _weights_format(files)
-    variants = gguf.variants_of(files)
-    if variants and (src.variant or fmt != "safetensors"):
-        return _extract_gguf(src, revision, token, files, variants, seq_len, notes)
-    if src.variant:
-        raise ValueError(f"'{src.repo}' has no GGUF files; ':{src.variant}' selects a GGUF variant")
+            raise ValueError(f"'{src.repo}' has no GGUF files; ':{src.variant}' selects a GGUF variant")
 
     try:
         config = with_retries(
@@ -115,12 +119,23 @@ def extract_graph(
         # expected shapes: custom-code repos (execute arbitrary Python — refused
         # by default, §05), repos transformers can't parse at all (no
         # model_type, diffusers-style pipelines, brand-new architectures), and
-        # local dirs without a config.json; all degrade to the weights view
+        # local dirs without a config.json; all degrade to the weights view —
+        # or to the GGUF path when that is what the repo holds
+        if files is None:
+            try:
+                files = _list_files(src, revision, token)
+            except Exception as le:
+                # a repo that doesn't exist / isn't visible: surface the Hub's answer
+                raise le if "not found" in str(le).lower() or "gated" in str(le).lower() or "401" in str(le) else e
+        variants = gguf.variants_of(files)
+        if variants:
+            return _extract_gguf(src, revision, token, files, variants, seq_len, notes)
         if "trust_remote_code" in str(e):
             notes.append("repo requires trust_remote_code; refused — weights view only")
         else:
             notes.append(f"not a transformers-loadable config ({e}) — weights view only")
-        return _weights_only(src, revision, token, notes, fmt)
+        return _weights_only(src, revision, token, notes, _weights_format(files))
+    fmt = _weights_format(files) if files is not None else None
 
     # eager attention is plain matmul+softmax and always has meta kernels;
     # sdpa/flash backends may not
@@ -134,7 +149,8 @@ def extract_graph(
 
     graph = _graph_from_model(src, revision, model, config, seq_len, notes)
     graph.weights_format = fmt
-    _apply_dtypes(src, revision, token, config, graph.nodes, notes)
+    if _apply_dtypes(src, revision, token, config, graph.nodes, notes) and fmt is None:
+        graph.weights_format = "safetensors"
     return graph
 
 
@@ -413,7 +429,7 @@ def _quant_label(config) -> str | None:
     return None
 
 
-def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> None:
+def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> bool:
     """Meta params default to fp32; real dtypes come from config and headers.
 
     Per module, the `weight` tensor's dtype wins (scales / zero-points /
@@ -439,7 +455,7 @@ def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> None:
             ]
     except Exception as e:
         notes.append(f"no safetensors metadata: {type(e).__name__}")
-        return
+        return False
     qlabel = _quant_label(config)
     # checkpoints in a vendor layout (DeepSeek's "layers.N.ffn.experts.3.w1")
     # are renamed on load by transformers' conversion mapping; apply the same
@@ -513,6 +529,7 @@ def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> None:
                 f"quantization_config says {method or qlabel}, but the checkpoint's tensor names did not match "
                 "the module tree — weights are shown at the config's declared dtype"
             )
+    return bool(tensors)
 
 
 def _checkpoint_renames(model_type: str | None) -> list[tuple[re.Pattern, str]]:

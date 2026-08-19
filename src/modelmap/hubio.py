@@ -35,6 +35,22 @@ def _transport_errors() -> tuple[type[BaseException], ...]:
     return tuple(errs)
 
 
+MAX_RATE_LIMIT_WAIT_S = 20.0
+
+
+def _rate_limit_wait(e: BaseException) -> float | None:
+    """Seconds the Hub asks us to wait on a 429, when that wait is short enough
+    to absorb inside the request; None for anything else."""
+    msg = str(e)
+    if "429" not in msg or "rate limit" not in msg.lower():
+        return None
+    import re
+
+    m = re.search(r"retry after (\d+)", msg.lower())
+    wait = float(m.group(1)) if m else 5.0
+    return wait if wait <= MAX_RATE_LIMIT_WAIT_S else None
+
+
 def with_retries(fn: Callable[[], T], attempts: int = 3, base_delay: float = 0.5) -> T:
     retryable = _transport_errors()
     last: BaseException | None = None
@@ -47,5 +63,14 @@ def with_retries(fn: Callable[[], T], attempts: int = 3, base_delay: float = 0.5
                 delay = base_delay * (2**i)
                 log.warning("transient hub error (%s); retrying in %.1fs", type(e).__name__, delay)
                 time.sleep(delay)
+        except Exception as e:
+            # a short Hub rate-limit window is worth waiting out once; longer
+            # ones surface to the caller (the server turns them into a 503)
+            wait = _rate_limit_wait(e)
+            if wait is None or i >= attempts - 1:
+                raise
+            last = e
+            log.warning("hub rate limit; waiting %.0fs", wait)
+            time.sleep(wait + 0.5)
     assert last is not None
     raise last

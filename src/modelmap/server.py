@@ -22,6 +22,7 @@ import concurrent.futures
 import hashlib
 import logging
 import multiprocessing
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -198,6 +199,15 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
             )
         msg = str(e)
         low = msg.lower()
+        if "429" in msg and "rate limit" in low:
+            m = re.search(r"retry after (\d+)", low)
+            wait = int(m.group(1)) if m else 60
+            raise HTTPException(
+                503,
+                f"the Hugging Face Hub is rate-limiting this server's requests right now (shared IP); "
+                f"try again in about {wait} s — or add your HF token (top bar → token), which carries its own quota",
+                headers={"Retry-After": str(wait)},
+            )
         if "NotFound" in name or "not a valid model identifier" in msg or "repository not found" in low or "404" in msg:
             # the Hub answers 401 "Repository Not Found" for unknown *and* private repos alike
             raise HTTPException(

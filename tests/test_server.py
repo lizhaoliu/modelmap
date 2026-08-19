@@ -250,3 +250,21 @@ def test_frame_policy_and_spa(api):
     r = api.get("/m/Qwen/Qwen3-8B?embed=1")
     if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
         assert "x-frame-options" not in r.headers
+
+
+def test_hub_rate_limit_maps_to_503_with_retry_after(monkeypatch, tmp_path):
+    monkeypatch.setenv("MODELMAP_CACHE", str(tmp_path))
+
+    def angry(model_id, revision, token, allow_local=False):
+        raise RuntimeError("HfHubHTTPError: 429 Too Many Requests: you have reached your 'api' rate limit.\nRetry after 86 seconds (0/500 requests remaining)")
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    monkeypatch.setattr(server, "_extract_job", angry)
+    monkeypatch.setattr(server, "_get_pool", lambda: pool)
+    monkeypatch.setattr(server, "_reset_pool", lambda: None)
+    monkeypatch.setattr(server, "_limiter", server.RateLimiter(per_min=600, burst=100))
+    server._inflight.clear()
+    with TestClient(server.app) as c:
+        r = c.get("/api/graph/some/model")
+    assert r.status_code == 503 and r.headers["retry-after"] == "86" and "token" in r.json()["detail"]
+    pool.shutdown(wait=False)
