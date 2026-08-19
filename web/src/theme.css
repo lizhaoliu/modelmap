@@ -709,6 +709,8 @@ kbd {
 .mm-embed-badge b { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; color: var(--flow-text); }
 .mm-embed-badge:hover { border-color: var(--flow); }
 .mm-app.is-embed .mm-flowbar-wrap { bottom: 46px; }
+.mm-app.is-embed .mm-controls { top: 10px !important; right: 10px !important; bottom: auto !important; left: auto !important; }
+.mm-app.is-embed .mm-crumbs { max-width: calc(100% - 80px); }
 
 .mm-insp-copy { font-size: 0.72rem; margin-left: auto; text-decoration: none; opacity: 0.75; }
 .mm-insp-copy:hover { opacity: 1; text-decoration: underline; }

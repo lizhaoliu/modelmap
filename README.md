@@ -33,8 +33,9 @@ uv run modelmap mcp                   # MCP server for Claude Code / Cursor (pip
 docker compose up --build
 ```
 
-`uvx modelmap` needs the package on PyPI (`uv publish`) or a wheel from a GitHub release
-(`uvx --from <wheel-url> …`); CI builds and attaches one per release.
+`uvx modelmap` needs the package on PyPI (`uv publish`); until then install from GitHub:
+`uvx --index https://download.pytorch.org/whl/cpu --from modelmap@git+https://github.com/lizhaoliu/modelmap modelmap`
+(add `[mcp]` → `modelmap[mcp]@git+…` for the MCP server). CI also attaches a wheel to each GitHub release.
 
 ## What you get
 

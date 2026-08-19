@@ -198,14 +198,18 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
             )
         msg = str(e)
         low = msg.lower()
+        if "NotFound" in name or "not a valid model identifier" in msg or "repository not found" in low or "404" in msg:
+            # the Hub answers 401 "Repository Not Found" for unknown *and* private repos alike
+            raise HTTPException(
+                404,
+                f"'{model_id}' was not found on the Hugging Face Hub — if it is private, add your HF token (top bar → token)",
+            )
         if "gated" in low or ("401" in msg and "token" in low):
             raise HTTPException(
                 403,
                 f"'{model_id}' is a gated repo — accept its terms on huggingface.co and add "
                 "your HF token (top bar → token) to view it",
             )
-        if "NotFound" in name or "not a valid model identifier" in msg or "404" in msg:
-            raise HTTPException(404, f"'{model_id}' was not found on the Hugging Face Hub")
         if name in ("LocalPathError", "GGUFError"):
             raise HTTPException(422, msg)
         raise HTTPException(422, f"could not extract '{model_id}': {name}: {msg}")

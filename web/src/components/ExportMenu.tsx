@@ -109,7 +109,7 @@ export function ExportMenu() {
           <button role="menuitem" onClick={() => copy('Embed code', iframe)}>Copy embed code <span className="mm-dim">&lt;iframe&gt; for model cards, blogs, docs</span></button>
           <button role="menuitem" onClick={() => copy('API URL', location.origin + apiUrl('csv').replace('format=csv', 'format=json'))}>Copy API URL <span className="mm-dim">/api/export · /api/summary · /docs</span></button>
           {busy && <div className="mm-pop-note">working…</div>}
-          {!busy && <div className="mm-pop-note">CLI: <code>uvx modelmap dump {doc.model_id} -f md</code> · MCP: <code>uvx --from 'modelmap[mcp]' modelmap mcp</code></div>}
+          {!busy && <div className="mm-pop-note">CLI: <code>modelmap dump {doc.model_id} -f md</code> · MCP: <code>modelmap mcp --remote {location.origin}</code> · <a className="mm-link" href="https://github.com/lizhaoliu/modelmap/blob/main/docs/API.md" target="_blank" rel="noreferrer">API docs</a></div>}
         </div>
       )}
     </span>

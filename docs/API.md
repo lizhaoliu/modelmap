@@ -43,6 +43,7 @@ curl -s "https://modelmap.cc/api/compare?a=Qwen/Qwen2.5-7B&b=Qwen/Qwen3-8B&forma
 
 ```bash
 uvx --index https://download.pytorch.org/whl/cpu modelmap              # serve + open the browser
+#  (not on PyPI yet: add  --from modelmap@git+https://github.com/lizhaoliu/modelmap)
 modelmap ./my-finetune                                                   # open a local checkpoint
 modelmap dump Qwen/Qwen3-8B -f md -o -                                   # json | csv | md | dot (to stdout with -o -)
 modelmap dump Qwen/Qwen3-8B-GGUF:Q8_0 -f csv --leaves-only
@@ -72,11 +73,15 @@ text, media_type = render(doc, "md")                           # csv | md | json
 ## MCP server (for coding agents)
 
 ```bash
-claude mcp add modelmap -- uvx --from 'modelmap[mcp]' modelmap mcp                     # local extraction
-claude mcp add modelmap -- uvx --from 'modelmap[mcp]' modelmap mcp --remote https://modelmap.cc   # ask the hosted API
+# until the package is on PyPI, install straight from GitHub (the CPU torch index keeps it small):
+MM="uvx --index https://download.pytorch.org/whl/cpu --from modelmap[mcp]@git+https://github.com/lizhaoliu/modelmap modelmap"
+claude mcp add modelmap -- $MM mcp                                # local extraction (needs torch, ~1 min first run)
+claude mcp add modelmap -- $MM mcp --remote https://modelmap.cc  # delegate to the hosted API
 ```
 
-Cursor / Windsurf / others: command `uvx`, args `["--from", "modelmap[mcp]", "modelmap", "mcp"]`. Transport: stdio.
+Cursor / Windsurf / others: command `uvx`, args `["--index", "https://download.pytorch.org/whl/cpu", "--from",
+"modelmap[mcp]@git+https://github.com/lizhaoliu/modelmap", "modelmap", "mcp", "--remote", "https://modelmap.cc"]`. Transport: stdio.
+Once published to PyPI the `--from` becomes just `modelmap[mcp]`.
 
 Tools: `describe_model`, `estimate_cost`, `plan_serving`, `compare_models`, `list_modules`, `search_models`,
 `export_markdown` — each takes model ids in the grammar above and the same `T / B / dtype` assumptions, and answers
