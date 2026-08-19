@@ -34,6 +34,9 @@ class Settings:
     worker_mem_mb: int = field(default_factory=lambda: _int("MODELMAP_WORKER_MEM_MB", 4096))
     warm_on_start: bool = field(default_factory=lambda: _bool("MODELMAP_WARM", False))
     cache_max_age_s: int = field(default_factory=lambda: _int("MODELMAP_CACHE_MAX_AGE", 300))
+    # "local:/path" ids read checkpoints from this machine's disk — the CLI
+    # turns it on for loopback serving; never set it on a public deployment
+    allow_local: bool = field(default_factory=lambda: _bool("MODELMAP_ALLOW_LOCAL", False))
 
 
 settings = Settings()

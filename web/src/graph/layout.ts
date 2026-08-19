@@ -7,8 +7,16 @@ export interface MMData extends Record<string, unknown> {
   g: GNode
   /** set when this node IS a repeat's representative ("1 of N") */
   repeat?: Repeat
-  /** set when this container's children collapsed into a repeat ("×N" stack) */
+  /** set when this container's children collapsed into a repeat ("×N" stack);
+   *  the first run — opening the stack opens its representative */
   stackOf?: Repeat
+  /** total children behind the stack: every run's count + un-collapsed siblings */
+  stackTotal?: number
+  /** counts of each repeated design when a parent holds several (DeepSeek-V3
+   *  dense+MoE [3, 58]; DeepSeek-V4 interleaved [20, 20]) and how many
+   *  children stayed unique (un-collapsed) */
+  stackRuns?: number[]
+  stackLoose?: number
   hasChildren: boolean
   expanded: boolean
   /** layout direction of the parent container — decides handle placement */
@@ -42,6 +50,23 @@ function mkEdge(id: string, source: string, target: string, aux: boolean): Edge 
       : { stroke: EDGE_COLOR, strokeWidth: 1.2 },
     markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR },
   }
+}
+
+/** Count and describe what a collapsed "×N" stack stands for. */
+export function stackInfo(index: GraphIndex, id: string): { stackTotal?: number; stackRuns?: number[]; stackLoose?: number } {
+  const runs = index.repeatsByParent.get(id)
+  if (!runs?.length) return {}
+  const kids = index.children.get(id) ?? []
+  const reps = new Set(runs.map((r) => r.representative))
+  const loose = kids.filter((k) => !reps.has(k.id)).length
+  const total = runs.reduce((s, r) => s + r.count, 0) + loose
+  return { stackTotal: total, stackRuns: runs.length > 1 || loose ? runs.map((r) => r.count) : undefined, stackLoose: loose }
+}
+
+/** "43 blocks — 2 repeated designs (×20, ×20) + 3 unique" */
+export function stackTitle(total: number, runs: number[] | undefined, loose: number | undefined): string {
+  if (!runs) return `${total} structurally identical blocks`
+  return `${total} blocks — ${runs.length} repeated design${runs.length > 1 ? 's' : ''} (${runs.map((c) => '×' + c).join(', ')})${loose ? ` + ${loose} unique` : ''}`
 }
 
 /** Top levels read left-to-right like the design-doc hero; block internals
@@ -171,6 +196,7 @@ export async function layoutGraph(
           g,
           repeat: index.repeatByRep.get(s.id),
           stackOf: index.repeatsByParent.get(s.id)?.[0],
+          ...stackInfo(index, s.id),
           hasChildren: (index.children.get(s.id) ?? []).length > 0,
           expanded: isExpanded,
           dir,

@@ -1,10 +1,15 @@
 """Fallback ladder, rung 3 (design doc §05): a structural tree from
 safetensors headers alone — tensor names, shapes, and dtypes via HTTP range
-reads. Explore-only: no classes, no trace."""
+reads (or local files, or a GGUF tensor table). Explore-only: no classes,
+no trace."""
 
 from __future__ import annotations
 
+import json
+import os
+import struct
 from collections import Counter, defaultdict
+from typing import Iterable
 
 from huggingface_hub import HfApi, get_safetensors_metadata, parse_safetensors_file_metadata
 
@@ -68,23 +73,56 @@ def _collect_tensors(model_id: str, revision: str, token: str | None, notes: lis
     return tensors
 
 
+TensorTriple = tuple[str, list[int], str]  # (name, shape, dtype)
+
+
+def local_safetensors(path: str) -> list[TensorTriple]:
+    """Tensor table of every *.safetensors under a local checkpoint dir (or a
+    single file): the 8-byte header length + JSON header, no tensor data."""
+    files = [path] if os.path.isfile(path) else sorted(
+        os.path.join(root, f)
+        for root, _, fs in os.walk(path)
+        for f in fs
+        if f.endswith(".safetensors")
+    )
+    out: list[TensorTriple] = []
+    for fp in files[:MAX_FILES]:
+        with open(fp, "rb") as f:
+            n = struct.unpack("<Q", f.read(8))[0]
+            header = json.loads(f.read(n))
+        rel = os.path.relpath(fp, path) if os.path.isdir(path) else ""
+        prefix = rel.rsplit("/", 1)[0].replace("/", ".") + "." if "/" in rel else ""
+        for tname, info in header.items():
+            if tname == "__metadata__":
+                continue
+            out.append((prefix + tname, list(info["shape"]), str(info["dtype"]).lower()))
+    return out
+
+
 def weights_graph(
     model_id: str,
     revision: str = "main",
     token: str | None = None,
     notes: list[str] | None = None,
+    tensors: Iterable[TensorTriple] | None = None,
+    **extra,
 ) -> Graph:
     notes = list(notes or [])
-    tensors = _collect_tensors(model_id, revision, token, notes)
+    if tensors is None:
+        tensors = [
+            (tname, list(info.shape), str(info.dtype).lower())
+            for tname, info in _collect_tensors(model_id, revision, token, notes).items()
+        ]
+    tensors = list(tensors)
 
     # "model.layers.0.self_attn.q_proj.weight" → module "…q_proj", tensor "weight"
     mod_weights: dict[str, dict[str, list[int]]] = defaultdict(dict)
     mod_dtypes: dict[str, Counter] = defaultdict(Counter)
-    for tname, info in tensors.items():
+    for tname, shape, dtype in tensors:
         mod, _, leaf = tname.rpartition(".")
         mod = mod or tname
-        mod_weights[mod][leaf] = list(info.shape)
-        mod_dtypes[mod][str(info.dtype).lower()] += 1
+        mod_weights[mod][leaf] = list(shape)
+        mod_dtypes[mod][dtype] += 1
 
     params_by_node: dict[str, int] = defaultdict(int)
     node_ids: set[str] = set()
@@ -138,13 +176,14 @@ def weights_graph(
         revision=revision,
         fidelity="weights",
         architecture=None,
-        params_total=sum(_numel(list(t.shape)) for t in tensors.values()),
+        params_total=sum(_numel(shape) for _, shape, _ in tensors),
         config={},
         nodes=nodes,
         repeats=repeats,
         edges=edges,
         trace=[],
         notes=notes,
+        **extra,
     )
 
 

@@ -397,6 +397,9 @@ footer {
     <li><a href="#questions"><span class="no">13</span>Decisions</a></li>
     <li><a href="#m5"><span class="no">14</span>M5 · Cost lens</a></li>
     <li><a href="#m6"><span class="no">15</span>M6 · Compare</a></li>
+    <li><a href="#m7"><span class="no">16</span>M7 · Export &amp; integrate</a></li>
+    <li><a href="#m8"><span class="no">17</span>M8 · Serving planner</a></li>
+    <li><a href="#m8b"><span class="no">18</span>M8 · Quantized &amp; local checkpoints</a></li>
   </ul>
 </section>
 
@@ -816,6 +819,16 @@ footer {
       <p>Two models side by side, aligned by path then role, differences first; linked canvases, diff inspector, summary strip (§15).</p>
       <p class="accept">accepts when <b>Qwen2.5-7B vs Qwen3-8B calls out q/k norms, dropped biases, ffn and layer-count changes</b> and a base vs fine-tune reports no structural diff.</p>
     </div></div>
+    <div class="ms"><div class="tag">M7</div><div>
+      <h3>Export &amp; integrate</h3>
+      <p>PNG/SVG of the view, CSV / Markdown / JSON / DOT, node links, <code>?embed=1</code>, documented REST, Python API, CLI (<code>dump · cost · plan · diff</code>), MCP server, Hub button (§16).</p>
+      <p class="accept">accepts when <b>a downloaded PNG reproduces the current view and a coding agent answers "will it fit on 2×A100?" through MCP</b> with the numbers the UI shows.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M8</div><div>
+      <h3>Quantized, local, planned</h3>
+      <p>GGUF variants via header range reads with real bits per weight, quantization_config dtypes, local checkpoints, interleaved repeat stacks, serving planner (§17, §18).</p>
+      <p class="accept">accepts when <b>Qwen3-8B-GGUF:Q4_K_M reports ≈ 4.4 GB of weights and DeepSeek-V4's alternating layers collapse</b>; the planner splits Qwen3-8B 0–17 / 18–35 at pp = 2.</p>
+    </div></div>
   </div>
 </section>
 
@@ -828,6 +841,7 @@ footer {
     <li><strong>v1 model families: multimodal included.</strong> ViT and Qwen2.5-VL join the acceptance set alongside text LLMs, BERT, and MoE.</li>
     <li><strong>Name: <code>modelmap</code></strong> (was <code>hviz</code>) — package, CLI, repo, and site. PyPI-available at decision time.</li>
     <li><strong>Post-build (2026-08-15/16):</strong> a CSS 2.5D tilt was prototyped and rejected — depth encoded nothing the 2D containment cues didn't already show. Any future 3D work stays scoped to a Flow-mode replay scene where physical tensor proportions would be new information. Hosting hardening measured and built (torch-free parent ≈50 MB, pre-gzipped cache, de-dup, back-pressure, rate limit, worker rlimits, container with dropped capabilities); deployment target intentionally left open.</li>
+    <li><strong>2026-08-19 (M7/M8):</strong> analytics are deliberately implemented twice (Python for server/CLI/MCP, TypeScript for the live UI) with shared fixture tests rather than a WASM bridge; the MCP server defaults to local extraction but can delegate to the hosted API; local paths are a loopback-only capability, never a hosted one; GGUF variants are addressed with a <code>:label</code> suffix on the model id so every surface (URL, REST, CLI, MCP, cache key) agrees.</li>
   </ol>
 </section>
 
@@ -965,8 +979,58 @@ footer {
   <p>Qwen2.5-7B vs Qwen3-8B: every layer module aligns, the diff calls out <code>q_norm</code>/<code>k_norm</code> added, projection biases removed, ffn 18 944 → 12 288, and 28 → 36 layers. gpt2 vs gpt2-medium: identical design, only widths and counts change (all pairs by path). A base and its instruct fine-tune: zero structural differences reported. Two unrelated models still render usefully with most modules unpaired rather than mis-paired.</p>
 </section>
 
+<section id="m7">
+  <span class="eyebrow"><span class="no">16</span> M7 · Export &amp; integrate</span>
+  <h2>Leaving the page: the same facts in every workflow</h2>
+  <p>A map that only lives in one browser tab is a demo. Once the graph document exists, everything derived from it — the picture, the per-module table, the cost numbers, the diff — should be reachable from wherever the work actually happens: a README, a design doc, a capacity spreadsheet, a Slack thread, a coding agent. M7 adds those surfaces without inventing new data: each one renders the document (§06) or its analytics (§14) in another format.</p>
+
+  <h3>Surfaces</h3>
+  <ul>
+    <li><strong>Images of this view.</strong> <code>export ▾ → PNG / SVG</code> renders the current canvas — the same ELK positions, fixed node sizes and bezier edges the canvas uses — into an SVG string on the client (no DOM serialisation, no font embedding problems), with the active lens badges, heat and selection; PNG rasterises it at 2× (capped at ~16 Mpx). The file is what the user saw, at the current expansion state.</li>
+    <li><strong>Data.</strong> CSV — one row per shipped module (path, kind, class, repeats, multiplicity, params with repeats, dtype, weight / traced shapes, MACs per token, weight / activation / KV bytes, attributes, source link); Markdown — a model-card style summary (headline numbers, config table, stacks, cost at T/B/dtype, largest weights); JSON — the document itself; Graphviz DOT — clusters to a depth, edges in execution order. CSV/MD/DOT come from the server (<code>/api/export</code>) so the CLI, REST and UI are byte-identical; JSON and images are produced client-side.</li>
+    <li><strong>Links.</strong> Every node's inspector has <em>copy link</em> (<code>?sel=</code>), the export menu copies the view URL, an <code>&lt;iframe&gt;</code> snippet, or the API URL. <code>?embed=1</code> renders chrome-less (no top bar, no inspector, an attribution badge that opens the full page; all other URL state — selection, lens, flow — still applies). API responses keep <code>X-Frame-Options</code>; the SPA may be framed anywhere.</li>
+    <li><strong>REST.</strong> <code>/api/summary/{id}</code> (headline numbers + cost at T/B/dtype), <code>/api/export/{id}?format=</code>, <code>/api/plan/{id}</code> (§17), <code>/api/compare?a=&amp;b=</code> (§15 server-side), plus the existing graph / gallery / search. All <code>GET</code>, CORS-open, OpenAPI at <code>/docs</code>; model ids accept <code>owner/name[:variant]</code> (§18).</li>
+    <li><strong>Python &amp; CLI.</strong> <code>from modelmap import extract_graph, summarize, plan_serving, align, render</code>; <code>modelmap dump -f csv|md|dot</code>, <code>cost</code>, <code>plan</code>, <code>diff</code>. <code>import modelmap</code> stays torch-free.</li>
+    <li><strong>MCP server.</strong> <code>modelmap mcp</code> (stdio; <code>--remote https://modelmap.cc</code> to delegate to the hosted API so the agent's machine never needs torch) exposes <code>describe_model · estimate_cost · plan_serving · compare_models · list_modules · search_models · export_markdown</code>. Every tool takes the same assumptions (T, B, dtype) the UI shows and returns the same numbers.</li>
+    <li><strong>Hub integration.</strong> A Chrome extension and a userscript add a <em>view in modelmap ↗</em> button next to the model name on huggingface.co (pure DOM, no permissions).</li>
+  </ul>
+
+  <h3>Twin analytics</h3>
+  <p>Cost (§14), the planner (§17) and compare alignment (§15) now exist in Python as well as TypeScript — deliberately duplicated rather than shared, because the UI must re-derive instantly on the client and the server must answer without a browser. <code>tests/test_analytics.py</code> and <code>web/tests/*.test.ts</code> pin the same fixture numbers (Qwen3-235B ≈ 22 B active params, Qwen3-8B KV = 36 × 2 × 8 × 128 × 2 bytes/token, tied <code>lm_head</code> stored once, …) so the two cannot drift silently.</p>
+
+  <h3>Acceptance</h3>
+  <p>From a model page: PNG and SVG downloads reproduce the current expansion and lens; CSV has a row for <code>model.layers.0.self_attn.q_proj</code> with multiplicity 36; the embed snippet renders chrome-less with the badge; a node's copied link reopens the model with that node selected. <code>curl /api/summary</code>, <code>modelmap cost</code> and the inspector agree on KV bytes at T; the MCP tools register with schemas and answer from the same document.</p>
+</section>
+
+<section id="m8">
+  <span class="eyebrow"><span class="no">17</span> M8 · Serving planner</span>
+  <h2>Will it fit, and how would I split it?</h2>
+  <p>The question behind most visits from people who self-host is not "what is the architecture" but "does this fit on what I have, at the context I need". The Cost lens already knows weight bytes at stored dtypes, KV bytes per token per layer, and the largest activation at T and B; the planner arranges those across GPUs.</p>
+  <ul>
+    <li><strong>Inputs</strong> — GPU count, memory per GPU (presets for H100/H200/A100/L40S/L4/4090/…, or custom), tensor-parallel and pipeline-parallel degree (kept consistent with the GPU count), headroom (fraction reserved for framework workspace / fragmentation), and the shared T / B / dtype assumptions.</li>
+    <li><strong>Placement</strong> — the largest repeat stack is the layer stack; stages get contiguous layer ranges balanced by weight bytes, the embedding joins the first stage and the head the last (a two-stack model like DeepSeek-V3 places all 61 layers; a model without a stack splits its top-level modules). TP divides weights, KV and activations per stage. Activations are the largest single non-logits tensor (prefill peak; decode needs far less; logits excluded because engines compute them for sampled tokens only).</li>
+    <li><strong>Outputs</strong> — per stage / per GPU: weights, KV at T, activation, total, fits (≤ capacity × (1 − headroom)); bytes crossing each pipeline boundary per forward (B × T × hidden × bytes); the <em>KV-limited maximum context</em> at this batch; notes when heads don't divide across TP or KV heads are fewer than TP ranks (K/V replicate).</li>
+    <li><strong>Where</strong> — <code>fit?</code> in the top bar (state in the URL and localStorage), <code>modelmap plan</code>, <code>/api/plan</code>, the MCP <code>plan_serving</code> tool.</li>
+  </ul>
+  <p class="accept">accepts when <b>Qwen3-8B at T = 4096 fits one 24 GB GPU, splits 0–17 / 18–35 at pp = 2 with 32 MB crossing the boundary, and reports a larger max context with two GPUs than one</b>; a 235B MoE at bf16 reports "does not fit" on 8 × 80 GB and fits at f8 / int4 stored dtypes.</p>
+</section>
+
+<section id="m8b">
+  <span class="eyebrow"><span class="no">18</span> M8 · Quantized and local checkpoints</span>
+  <h2>The variant you will actually serve</h2>
+  <p>Self-hosters run the Q4_K_M, the FP8, the AWQ — not the bf16 reference. Those repos were either filtered out (trending) or shown at the wrong bytes. M8 makes quantized checkpoints first-class and lets the same tooling run on checkpoints that never leave your machine.</p>
+  <ul>
+    <li><strong>GGUF without downloading.</strong> A GGUF file begins with a self-describing header (key/value metadata and the tensor table); the tokenizer vocabulary makes it a few MB, the tensor data many GB. <code>gguf.py</code> reads the header through HTTP range requests, maps the metadata onto a transformers config (reusing transformers' own <code>GGUF_CONFIG_MAPPING</code>; <code>output.weight</code> present ⇒ untied head; causal-LM class named so the tree carries <code>lm_head</code>), instantiates on the meta device and traces the forward exactly like a safetensors repo, then applies each tensor's ggml quant type to its module through the standard llama.cpp names (<code>blk.N.attn_q</code> → <code>model.layers.N.self_attn.q_proj</code>, <code>ffn_*_exps</code> → <code>mlp.experts</code>). Unknown architectures fall back to a weights view built straight from the tensor table. Bits per weight (Q4_K 4.5, Q6_K 6.56, Q8_0 8.5, IQ2_XXS 2.06, …) feed the Cost lens, so weight bytes are true on-disk bytes; a note reports the file's total and whether quant types vary per layer.</li>
+    <li><strong>Variants.</strong> A repo's <code>*.gguf</code> files group by quant label (shards of one variant together); the document carries <code>variant</code> and <code>variants</code>, the top bar shows a picker, and <code>owner/name:Q8_0</code> addresses a variant everywhere (UI, REST, CLI, MCP). Default <code>Q4_K_M</code> when present.</li>
+    <li><strong>Other quantization.</strong> Safetensors repos with a <code>quantization_config</code> (FP8, AWQ / GPTQ int4, bitsandbytes, compressed-tensors, MXFP4) label packed weights with the quantized dtype; per-module dtype now comes from the <code>weight</code> tensor (scales and zero-points no longer overwrite it), and per-expert checkpoint tensors resolve to the fused experts module — a 235B FP8 repo reports ≈ 223 GB of weights, not 434.</li>
+    <li><strong>Local checkpoints.</strong> <code>local:/path</code> ids (CLI: any existing path; <code>modelmap ./ckpt</code> opens it in the browser) read <code>config.json</code> / safetensors headers / GGUF headers from disk; never cached, never enabled on the hosted site (<code>MODELMAP_ALLOW_LOCAL</code>). Compare a fine-tune against its base with the same diff.</li>
+    <li><strong>Interleaved repeats.</strong> The collapser's second pass groups leftover siblings by signature regardless of adjacency, so DeepSeek-V4's alternating sliding-window / compressed-attention layers collapse into <code>×43 — 2 repeated designs (×20, ×20) + 3 unique</code> instead of 43 loose blocks; stack badges count every child, opening a stack opens one block of each design, and the inspector lists interleaved members.</li>
+  </ul>
+  <p class="accept">accepts when <b>Qwen/Qwen3-8B-GGUF opens as Q4_K_M with a picker of 5 variants, q_proj reads "Q4_K · 4.5 bpw", and switching to Q8_0 re-extracts with ≈ 7.5 GB of weights</b>; Qwen3-235B-A22B-FP8 reports ≈ 223 GB; a local directory holding only gpt2's <code>config.json</code> renders at full fidelity; DeepSeek-V4-Flash's layers collapse.</p>
+</section>
+
 <footer>
-  modelmap · design doc v1.2 · M1–M6 shipped
+  modelmap · design doc v1.3 · M1–M8 shipped
 </footer>
 
 </div>

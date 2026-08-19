@@ -78,3 +78,13 @@ export function gotoModel(id: string) {
   window.dispatchEvent(new Event('mm:navigate'))
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
+
+export interface Health { ok: boolean; version: string; allow_local?: boolean; cache_entries?: number }
+export async function fetchHealth(): Promise<Health | null> {
+  try {
+    const res = await fetch('/api/health')
+    return res.ok ? res.json() : null
+  } catch {
+    return null
+  }
+}

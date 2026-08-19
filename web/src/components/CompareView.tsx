@@ -137,7 +137,7 @@ function Side({ store, id, group }: { store: GraphStore; id: string; group: Link
   return (
     <StoreContext.Provider value={store}>
       <ReactFlowProvider>
-        <Canvas link={{ group, id }} flowEnabled={false} costs={false} />
+        <Canvas link={{ group, id }} flowEnabled={false} costs={false} primary={false} />
       </ReactFlowProvider>
     </StoreContext.Provider>
   )

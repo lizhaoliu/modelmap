@@ -52,3 +52,30 @@ def test_short_runs_stay_expanded():
     pruned, repeats = collapse_repeats(nodes)
     assert repeats == []
     assert len(pruned) == len(nodes)
+
+
+def test_interleaved_designs_collapse_into_two_non_contiguous_repeats():
+    # DeepSeek-V4 style: A A B A B A B A B … — no contiguous run reaches 3,
+    # but both designs repeat many times
+    nodes = [_node("", None, 0), _node("m", "", 0), _node("m.layers", "m", 0)]
+    pattern = [64, 64, 128, 64, 128, 64, 128, 64, 128, 64]
+    for i, dim in enumerate(pattern):
+        nodes += _layer(i, dim=dim)
+    pruned, repeats = collapse_repeats(nodes)
+
+    assert [(r.representative, r.count) for r in repeats] == [("m.layers.0", 6), ("m.layers.2", 4)]
+    assert repeats[0].members == ["0", "1", "3", "5", "7", "9"]
+    assert repeats[1].members == ["2", "4", "6", "8"]
+    ids = {n.id for n in pruned}
+    assert {"m.layers.0", "m.layers.2"} <= ids
+    assert not ({"m.layers.1", "m.layers.3", "m.layers.4.fc"} & ids)
+
+
+def test_contiguous_runs_win_and_leftovers_regroup():
+    # A A A  B  A A A  B B B  → two A runs + one B run + a lone B (too few to group)
+    nodes = [_node("", None, 0), _node("m", "", 0), _node("m.layers", "m", 0)]
+    pattern = [64, 64, 64, 128, 64, 64, 64, 128, 128, 128]
+    for i, dim in enumerate(pattern):
+        nodes += _layer(i, dim=dim)
+    _, repeats = collapse_repeats(nodes)
+    assert [(r.representative, r.count) for r in repeats] == [("m.layers.0", 3), ("m.layers.4", 3), ("m.layers.7", 3)]

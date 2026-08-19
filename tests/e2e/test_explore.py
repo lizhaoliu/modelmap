@@ -23,7 +23,7 @@ with sync_playwright() as p:
     check("graph renders nodes", n_nodes >= 6, f"{n_nodes} nodes")
     check("url updated", "/m/openai-community/gpt2" in page.url, page.url)
     check("stack badge ×12 visible", page.locator(".mm-badge", has_text="×12").count() == 1)
-    check("fidelity chip full", page.locator(".mm-fidelity.is-full").count() == 1)
+    check("fidelity full (in the model chip title; the chip only shows when degraded)", "fidelity full" in (page.locator(".mm-model-chip").get_attribute("title") or "") and page.locator(".mm-fidelity").count() == 0)
     page.screenshot(path=f"{SHOTS}/explore-1-default.png")
 
     page.locator(".mm-badge", has_text="×12").click()

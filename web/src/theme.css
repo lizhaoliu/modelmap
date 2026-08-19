@@ -117,7 +117,18 @@ kbd {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 32ch;
 }
 .mm-model-chip:has(.mm-vs) { max-width: 64ch; }
-.mm-topbar-center { flex: 1; display: flex; justify-content: center; min-width: 200px; }
+.mm-topbar-center { flex: 1; display: flex; justify-content: center; min-width: 120px; }
+.mm-topbar .mm-fidelity, .mm-topbar .mm-total-params, .mm-model-chip, .mm-variant, .mm-lens { flex: none; }
+@media (max-width: 1560px) { .mm-topbar .mm-total-params { display: none; } }
+@media (max-width: 1500px) { .mm-topbar { gap: 8px; } .mm-topbar .mm-btn { padding: 5px 9px; } }
+@media (max-width: 1400px) { .mm-topbar .mm-btn-share { display: none; } }
+@media (max-width: 1320px) { .mm-topbar .mm-fidelity { display: none; } .mm-model-chip { max-width: 18ch; } .mm-topbar .mm-btn-help { display: none; } }
+@media (max-width: 1180px) and (min-width: 821px) {
+  /* narrow desktop windows: let the bar wrap to two rows rather than clip */
+  .mm-topbar { flex-wrap: wrap; height: auto; min-height: 52px; padding: 6px 12px; row-gap: 6px; }
+  .mm-topbar-center { flex: 1 1 220px; min-width: 200px; }
+  .mm-variant select { max-width: 10ch; }
+}
 .mm-total-params { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
 .mm-fidelity {
   font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
@@ -128,7 +139,7 @@ kbd {
 .mm-fidelity.is-weights { color: var(--muted); border-color: var(--line); }
 .mm-btn {
   font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 7px; padding: 5px 11px;
+  border: 1px solid var(--line); border-radius: 7px; padding: 5px 11px; white-space: nowrap; flex: none;
 }
 .mm-btn:hover { color: var(--ink); border-color: var(--muted); }
 
@@ -665,14 +676,87 @@ kbd {
 .mm-sheet .mm-diffinsp { width: auto; }
 @media (prefers-reduced-motion: reduce) { .mm-sheet { transition: none; } }
 
+/* ---------- M7: export menu, embed mode, variants, local entry ---------- */
+.mm-export-pop { width: 330px; gap: 2px; padding: 10px 8px; }
+.mm-export-grp { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 8px 8px 3px; }
+.mm-export-pop button[role=menuitem] {
+  display: flex; justify-content: space-between; gap: 10px; align-items: baseline; text-align: left;
+  padding: 6px 8px; border-radius: 7px; font-size: 0.84rem; font-weight: 500; width: 100%;
+}
+.mm-export-pop button[role=menuitem] .mm-dim { font-size: 0.72rem; font-weight: 400; text-align: right; }
+.mm-export-pop button[role=menuitem]:hover { background: var(--flow-wash); color: var(--flow-text); }
+.mm-export-pop button[role=menuitem]:disabled { opacity: 0.5; }
+.mm-export-pop .mm-pop-note { padding: 8px 8px 2px; border-top: 1px solid var(--line-soft); margin-top: 6px; }
+.mm-export-pop code { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+
+.mm-variant { display: inline-flex; align-items: center; gap: 0; font-size: 0.74rem; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.mm-variant-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 3px 7px 3px 9px; background: var(--code-bg); }
+.mm-variant select {
+  font: inherit; font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--flow-text); font-weight: 500;
+  background: var(--card); border: none; padding: 3px 8px 3px 6px; cursor: pointer; max-width: 16ch;
+}
+.mm-variant select:focus { outline: none; }
+
+.mm-app.is-embed .mm-canvas { border: none; }
+.mm-app.is-embed .mm-minimap { display: none; }
+.mm-embed-badge {
+  position: absolute; left: 10px; bottom: 10px; z-index: 20;
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--line-soft); box-shadow: var(--shadow);
+  font-size: 0.76rem; color: var(--ink); text-decoration: none; max-width: calc(100% - 20px);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mm-embed-badge b { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; color: var(--flow-text); }
+.mm-embed-badge:hover { border-color: var(--flow); }
+.mm-app.is-embed .mm-flowbar-wrap { bottom: 46px; }
+
+.mm-insp-copy { font-size: 0.72rem; margin-left: auto; text-decoration: none; opacity: 0.75; }
+.mm-insp-copy:hover { opacity: 1; text-decoration: underline; }
+
+.mm-local-entry { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; width: min(1000px, 100%); font-size: 0.8rem; color: var(--muted); }
+.mm-local-entry input {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--ink); width: min(520px, 100%);
+  background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px;
+}
+.mm-local-entry input:focus { border-color: var(--flow); outline: none; }
+
+/* ---------- M8: serving planner ---------- */
+.mm-planner { width: min(560px, 94vw); gap: 10px; }
+.mm-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mm-plan-head b { font-size: 0.92rem; }
+.mm-plan-verdict { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; font-weight: 500; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.06em; }
+.mm-plan-verdict.is-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.mm-plan-verdict.is-over { color: var(--c-attn); background: var(--wash-attn); }
+.mm-plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
+.mm-plan-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 0.72rem; font-weight: 500; color: var(--muted); }
+.mm-plan-grid input, .mm-plan-grid select {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--ink); background: var(--code-bg);
+  border: 1px solid var(--line-soft); border-radius: 7px; padding: 5px 8px; width: 100%;
+}
+.mm-plan-grid input:focus, .mm-plan-grid select:focus { border-color: var(--flow); outline: none; }
+.mm-plan-assume { margin: 0; font-size: 0.74rem; color: var(--muted); }
+.mm-plan-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; font-family: 'IBM Plex Mono', monospace; }
+.mm-plan-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px 4px 0; border-bottom: 1px solid var(--line-soft); }
+.mm-plan-table td { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line-soft); white-space: nowrap; vertical-align: middle; }
+.mm-plan-table tr.is-over td { color: var(--c-attn); }
+.mm-plan-bar { display: flex; height: 6px; width: 110px; background: var(--code-bg); border-radius: 3px; overflow: hidden; margin-bottom: 3px; }
+.mm-plan-bar i { display: block; height: 100%; }
+.mm-plan-bar .w { background: var(--c-embed); }
+.mm-plan-bar .k { background: var(--flow); }
+.mm-plan-bar .a { background: var(--c-mlp); }
+.mm-plan-summary { margin: 0; font-size: 0.8rem; line-height: 1.5; }
+.mm-planner code { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; user-select: all; word-break: break-all; }
+.mm-planner .mm-link { margin-left: 8px; font-size: 0.7rem; }
+
 @media (max-width: 820px) {
   body { font-size: 13px; }
   .mm-main { flex-direction: column; }
   .mm-compare .mm-cmp-body { flex-direction: column; }
   .mm-canvas { flex: 1; min-height: 0; }
   .mm-topbar { height: 48px; padding: 0 10px; gap: 8px; }
-  .mm-model-chip, .mm-total-params, .mm-lens, .mm-btn-share, .mm-topbar .mm-btn-cmp,
-  .mm-fidelity, .mm-topbar .mm-btn-token, .mm-topbar .mm-btn-theme { display: none; }
+  .mm-model-chip, .mm-total-params, .mm-lens, .mm-btn-share, .mm-topbar .mm-btn-cmp, .mm-btn-export,
+  .mm-fidelity, .mm-topbar .mm-btn-token, .mm-topbar .mm-btn-theme, .mm-variant { display: none; }
+  .mm-embed-badge { font-size: 0.7rem; }
   .mm-topbar-center { min-width: 0; }
   .mm-search { width: 100%; }
   .mm-search input { height: 30px; font-size: 0.78rem; padding-right: 12px; }

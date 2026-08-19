@@ -49,14 +49,31 @@ export interface CostReport {
   notes: string[]
 }
 
-const DTYPE_BYTES: Record<string, number> = {
+/** bytes per element at a stored dtype; GGUF block quants are fractional
+ *  (bits per weight incl. scales / 8) — mirrors analytics.py DTYPE_BYTES */
+export const DTYPE_BYTES: Record<string, number> = {
   f64: 8, f32: 4, float32: 4, f16: 2, float16: 2, bf16: 2, bfloat16: 2,
-  f8_e4m3: 1, f8_e5m2: 1, float8_e4m3fn: 1, i8: 1, int8: 1, u8: 1, bool: 1,
-  i16: 2, i32: 4, i64: 8, int4: 0.5, u4: 0.5, i4: 0.5,
+  f8_e4m3: 1, f8_e5m2: 1, float8_e4m3fn: 1, float8_e5m2: 1, i8: 1, int8: 1, u8: 1, bool: 1,
+  i16: 2, i32: 4, i64: 8, int4: 0.5, u4: 0.5, i4: 0.5, nf4: 0.5, fp4: 0.5,
+  q4_0: 4.5 / 8, q4_1: 5 / 8, q5_0: 5.5 / 8, q5_1: 6 / 8, q8_0: 8.5 / 8, q8_1: 9 / 8,
+  q2_k: 2.625 / 8, q3_k: 3.4375 / 8, q4_k: 4.5 / 8, q5_k: 5.5 / 8, q6_k: 6.5625 / 8,
+  q8_k: 8.5 / 8, iq2_xxs: 2.0625 / 8, iq2_xs: 2.3125 / 8, iq2_s: 2.5 / 8,
+  iq3_xxs: 3.0625 / 8, iq3_s: 3.4375 / 8, iq1_s: 1.5625 / 8, iq1_m: 1.75 / 8,
+  iq4_nl: 4.5 / 8, iq4_xs: 4.25 / 8, tq1_0: 1.6875 / 8, tq2_0: 2.0625 / 8, mxfp4: 4.25 / 8,
 }
 export function bytesOf(dtype: string | null | undefined, fallback: number): number {
   if (!dtype) return fallback
   return DTYPE_BYTES[dtype.toLowerCase()] ?? fallback
+}
+/** "q4_k" → "Q4_K · 4.5 bpw"; plain dtypes pass through */
+export function fmtDtype(dtype: string | null | undefined): string {
+  if (!dtype) return '—'
+  const d = dtype.toLowerCase()
+  if (/^(i?q\d|tq\d|mxfp4)/.test(d)) {
+    const b = DTYPE_BYTES[d]
+    return `${dtype.toUpperCase()}${b ? ` · ${+(b * 8).toFixed(2)} bpw` : ''}`
+  }
+  return dtype
 }
 
 const VISION = /(^|\.)(visual|vision|vision_tower|vision_model|image_encoder)(\.|$)/
@@ -128,6 +145,18 @@ export function computeCosts(doc: GraphDoc, index: GraphIndex, a: Assumptions): 
   const vHidden = num(vc, 'hidden_size') ?? 0
   const vHeadDim = vHeads ? vHidden / vHeads : 0
 
+  // a tied lm_head shares the embedding matrix: real compute, but its
+  // parameters are stored (and counted in params_total) only once
+  const tiedHeads = new Set<string>()
+  if (c.tie_word_embeddings === true) {
+    const embShapes = new Set(
+      doc.nodes.filter((n) => n.kind === 'embedding').flatMap((n) => Object.values(n.weight_shapes ?? {}).map((w) => w.join('x'))),
+    )
+    for (const n of doc.nodes) {
+      if (n.kind === 'head' && Object.values(n.weight_shapes ?? {}).some((w) => embShapes.has(w.join('x')))) tiedHeads.add(n.id)
+    }
+  }
+
   const own = new Map<string, Cost>()
   let kvLayers = 0
   let kvSkipped = 0
@@ -136,11 +165,11 @@ export function computeCosts(doc: GraphDoc, index: GraphIndex, a: Assumptions): 
     const io = index.traceByNode.get(n.id)
     const weights = Object.values(n.weight_shapes ?? {})
     const cost: Cost = {
-      macs: 0, other: 0, paramBytes: n.params ? 0 : 0, activeParams: 0,
+      macs: 0, other: 0, paramBytes: 0, activeParams: 0,
       actBytes: 0, maxAct: 0, maxActNode: n.id, kvPerToken: 0,
     }
     // own params (non-recursive) → bytes at stored dtype, active share
-    const ownParams = weights.reduce((s, w) => s + prod(w), 0)
+    const ownParams = tiedHeads.has(n.id) ? 0 : weights.reduce((s, w) => s + prod(w), 0)
     const frac = expertFrac(n.id, weights)
     cost.paramBytes = ownParams * bytesOf(n.dtype, a.bytes)
     cost.activeParams = ownParams * frac
@@ -238,6 +267,7 @@ export function computeCosts(doc: GraphDoc, index: GraphIndex, a: Assumptions): 
     }
   }
   if (kvSkipped) notes.push(`${kvSkipped} linear-attention layers hold no KV cache`)
+  if (tiedHeads.size) notes.push('lm_head is tied to the embedding matrix (stored once)')
   if (E && K) notes.push(`MoE: ${K} of ${E} experts run per token`)
   return { byNode, root, assumptions: a, kvLayers, kvSkipped, notes }
 }

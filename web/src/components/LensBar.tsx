@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { fmtBytes, fmtInt, LENSES } from '../analytics/cost'
 import { useCostStore } from '../analytics/costStore'
+import { Planner } from './Planner'
 import { WhatIf } from './WhatIf'
 
 export function LensBar() {
@@ -9,6 +10,7 @@ export function LensBar() {
   const a = useCostStore((s) => s.assumptions)
   const report = useCostStore((s) => s.report)
   const [open, setOpen] = useState(false)
+  const [planOpen, setPlanOpen] = useState(false)
   return (
     <div className="mm-lens">
       <div className="mm-lens-seg" role="radiogroup" aria-label="Lens">
@@ -31,6 +33,12 @@ export function LensBar() {
           {report && lens === 'kv' && ` · ${fmtBytes(report.root.kvPerToken * a.T * a.B)} KV`}
         </button>
         {open && <WhatIf onClose={() => setOpen(false)} />}
+      </span>
+      <span className="mm-topbar-rel">
+        <button className={`mm-btn mm-btn-plan ${planOpen ? 'is-on' : ''}`} onClick={() => setPlanOpen((v) => !v)} title="Serving planner: does it fit on my GPUs, how to split it, max context" aria-expanded={planOpen}>
+          fit?
+        </button>
+        {planOpen && <Planner onClose={() => setPlanOpen(false)} />}
       </span>
     </div>
   )

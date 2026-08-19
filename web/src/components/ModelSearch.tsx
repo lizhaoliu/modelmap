@@ -76,7 +76,7 @@ export function ModelSearch({ big = false, onPick, placeholder }: { big?: boolea
       <input
         ref={inputRef}
         value={q}
-        placeholder={placeholder ?? (big ? 'Search Hugging Face models — try "qwen3"' : 'Search models')}
+        placeholder={placeholder ?? (big ? 'Search Hugging Face models — try "qwen3"' : 'Search')}
         spellCheck={false}
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => hits.length && setOpen(true)}

@@ -4,6 +4,12 @@ Signatures hash a subtree's kinds, classes, and weight shapes — never the
 numeric index in a module's name — so a "×36" stack is a structural fact, not
 a naming convention. Runs of ≥ MIN_RUN consecutive identical siblings ship as
 one representative subtree plus a Repeat record.
+
+Siblings left over by the contiguous pass are grouped again by signature
+regardless of adjacency: architectures that *interleave* two block designs
+(DeepSeek-V4 alternates a sliding-window and a compressed-attention layer;
+Gemma alternates local/global) still collapse — into two Repeats whose
+members are non-contiguous ("0, 1, 3, 5, …" and "2, 4, 6, …").
 """
 
 from __future__ import annotations
@@ -39,7 +45,22 @@ def collapse_repeats(nodes: list[Node]) -> tuple[list[Node], list[Repeat]]:
 
     repeats: list[Repeat] = []
     doomed: set[str] = set()
+
+    def record(parent: str, run: list[Node]) -> None:
+        repeats.append(Repeat(
+            parent=parent,
+            representative=run[0].id,
+            count=len(run),
+            signature=sigs[run[0].id],
+            members=[n.id.rsplit(".", 1)[-1] for n in run],
+        ))
+        for n in run[1:]:
+            doomed.add(n.id)
+            doomed.update(_descendants(n.id, children))
+
     for parent, ks in children.items():
+        taken: set[str] = set()
+        # pass 1: contiguous runs
         i = 0
         while i < len(ks):
             j = i
@@ -47,17 +68,19 @@ def collapse_repeats(nodes: list[Node]) -> tuple[list[Node], list[Repeat]]:
                 j += 1
             run = ks[i : j + 1]
             if len(run) >= MIN_RUN:
-                repeats.append(Repeat(
-                    parent=parent,
-                    representative=run[0].id,
-                    count=len(run),
-                    signature=sigs[run[0].id],
-                    members=[n.id.rsplit(".", 1)[-1] for n in run],
-                ))
-                for n in run[1:]:
-                    doomed.add(n.id)
-                    doomed.update(_descendants(n.id, children))
+                record(parent, run)
+                taken.update(n.id for n in run)
             i = j + 1
+        # pass 2: interleaved designs — group the leftovers by signature alone
+        groups: dict[str, list[Node]] = defaultdict(list)
+        for n in ks:
+            if n.id not in taken:
+                groups[sigs[n.id]].append(n)
+        for run in groups.values():
+            if len(run) >= MIN_RUN:
+                record(parent, run)
+    # a parent's repeats in the order their first members appear
+    repeats.sort(key=lambda r: (r.parent, next(n.order for n in children[r.parent] if n.id == r.representative)))
 
     return [n for n in nodes if n.id not in doomed], repeats
 

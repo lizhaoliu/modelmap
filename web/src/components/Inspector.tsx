@@ -1,4 +1,4 @@
-import { fmtBytes, fmtInt, fmtMacs, type Cost } from '../analytics/cost'
+import { fmtBytes, fmtDtype, fmtInt, fmtMacs, type Cost } from '../analytics/cost'
 import { useCostStore } from '../analytics/costStore'
 import { fmtParams, fmtPct, leafName } from '../fmt'
 import { useStore } from '../store'
@@ -59,6 +59,15 @@ export function Inspector() {
 
   const node = selected != null ? index.byId.get(selected) : undefined
   const showCost = lens !== 'none' && report
+  const setToast = useStore((s) => s.setToast)
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(location.href)
+      setToast(node ? `Link to ${leafName(node.id)} copied` : 'Link copied')
+    } catch {
+      setToast('Copy the address bar — the URL points at this module')
+    }
+  }
 
   if (!node) {
     const cfg = CONFIG_KEYS.map((k) => [k, doc.config[k]] as const).filter(
@@ -75,6 +84,16 @@ export function Inspector() {
           <dd>{doc.params_total.toLocaleString()}</dd>
           <dt>fidelity</dt>
           <dd>{doc.fidelity}</dd>
+          {doc.weights_format && (
+            <>
+              <dt>checkpoint</dt>
+              <dd>
+                {doc.weights_format}
+                {doc.variant && <> · <b>{doc.variant}</b></>}
+                {(doc.variants?.length ?? 0) > 1 && <span className="mm-dim"> · {doc.variants!.length} variants in the repo</span>}
+              </dd>
+            </>
+          )}
           <dt>trace steps</dt>
           <dd>{doc.trace.length || '—'}</dd>
           {cfg.map(([k, v]) => (
@@ -111,6 +130,9 @@ export function Inspector() {
       <div className="mm-insp-head">
         <h2>{leafName(node.id)}</h2>
         <span className={`mm-kind-chip kind-${node.kind}`}>{node.kind}</span>
+        <button className="mm-link mm-insp-copy" onClick={copyLink} title="Copy a link that opens this model with this module selected">
+          copy link
+        </button>
       </div>
       <p className="mm-path">{node.id || '(root)'}</p>
       <dl className="mm-kv">
@@ -140,13 +162,13 @@ export function Inspector() {
         {node.dtype && (
           <>
             <dt>dtype</dt>
-            <dd>{node.dtype}</dd>
+            <dd>{fmtDtype(node.dtype)}</dd>
           </>
         )}
         {repeat && (
           <>
             <dt>repeats</dt>
-            <dd>×{repeat.count} identical (members {repeat.members[0]}…{repeat.members[repeat.members.length - 1]})</dd>
+            <dd>×{repeat.count} identical <span className="mm-dim">({fmtMembers(repeat.members)})</span></dd>
           </>
         )}
         {io && (
@@ -197,7 +219,7 @@ export function Inspector() {
                   <td>
                     <Shape shape={shape} labels={index.dimLabels} />
                   </td>
-                  <td className="mm-dim">{fmtParams(shape.reduce((a, b) => a * b, 1))}</td>
+                  <td className="mm-dim">{fmtParams(shape.reduce((a, b) => a * b, 1))}{node.dtype ? ` · ${fmtDtype(node.dtype).split(' · ')[0]}` : ''}</td>
                 </tr>
               ))}
             </tbody>
@@ -206,6 +228,15 @@ export function Inspector() {
       )}
     </aside>
   )
+}
+
+/** "0…35" for a contiguous run; "0, 1, 3, 5 … 41 (interleaved)" otherwise */
+export function fmtMembers(members: string[]): string {
+  if (!members.length) return ''
+  const nums = members.map(Number)
+  const contiguous = nums.every((n, i) => !Number.isNaN(n) && (i === 0 || n === nums[i - 1] + 1))
+  if (contiguous || members.length <= 4) return members.length <= 4 ? members.join(', ') : `members ${members[0]}…${members[members.length - 1]}`
+  return `members ${members.slice(0, 4).join(', ')} … ${members[members.length - 1]} — interleaved`
 }
 
 function FragmentRow({ k, v }: { k: string; v: string }) {

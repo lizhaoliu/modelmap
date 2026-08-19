@@ -5,6 +5,15 @@ Request path for /api/graph:
   cache miss → rate-limit check → in-flight de-dup (N visitors, one extraction)
              → back-pressure (429 when the queue is full)
              → worker process with hard timeout + resource limits → cache → serve
+
+The public API (design doc §16; OpenAPI at /docs):
+  GET /api/graph/{id}            the graph document (gzip)
+  GET /api/summary/{id}          headline numbers + cost estimates (small JSON)
+  GET /api/export/{id}?format=   csv | md | json | dot renderings
+  GET /api/plan/{id}?gpus=…      serving placement estimate (§17)
+  GET /api/compare?a=&b=         module-by-module diff (json | md)
+  GET /api/gallery, /api/search  landing data, Hub search
+All GET, CORS-enabled for any origin; ids accept owner/name[:variant].
 """
 
 from __future__ import annotations
@@ -13,17 +22,19 @@ import concurrent.futures
 import hashlib
 import logging
 import multiprocessing
-import re
 import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from modelmap import __version__, cache
+from modelmap.analytics import Assumptions, PlanRequest, WHATIF_DTYPES, plan_serving, summarize
 from modelmap.gallery import CLASSICS, trending, trending_ids
+from modelmap.ids import is_local, parse_model_id
 from modelmap.ratelimit import RateLimiter
 from modelmap.schema import SCHEMA_VERSION
 from modelmap.settings import settings
@@ -101,16 +112,13 @@ def _worker_init(mem_mb: int) -> None:
         log.warning("worker rlimits not applied: %s", e)
 
 
-def _extract_job(model_id: str, revision: str, token: str | None) -> dict:
+def _extract_job(model_id: str, revision: str, token: str | None, allow_local: bool = False) -> dict:
     from modelmap.extract import extract_graph
 
-    return extract_graph(model_id, revision=revision, token=token).to_json_dict()
+    return extract_graph(model_id, revision=revision, token=token, allow_local=allow_local).to_json_dict()
 
 
 # ------------------------------------------------------- de-dup / back-pressure
-
-# Hub ids: "owner/name", or a legacy top-level name like "gpt2"
-_MODEL_ID = re.compile(r"[A-Za-z0-9][\w.\-]{0,95}(/[A-Za-z0-9][\w.\-]{0,95})?")
 
 _inflight: dict[str, concurrent.futures.Future] = {}
 _inflight_lock = threading.Lock()
@@ -139,12 +147,12 @@ def _submit_shared(key: str, model_id: str, revision: str, token: str | None):
                 headers={"Retry-After": "5"},
             )
         try:
-            fut = _get_pool().submit(_extract_job, model_id, revision, token)
+            fut = _get_pool().submit(_extract_job, model_id, revision, token, settings.allow_local)
         except concurrent.futures.process.BrokenProcessPool:
             # a worker died (memory cap, native fault): rebuild once and retry
             log.warning("extraction pool was broken; rebuilding")
             _reset_pool()
-            fut = _get_pool().submit(_extract_job, model_id, revision, token)
+            fut = _get_pool().submit(_extract_job, model_id, revision, token, settings.allow_local)
         _inflight[key] = fut
         return fut, True
 
@@ -164,7 +172,8 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
     fut, owner = _submit_shared(key, model_id, revision, token)
     try:
         doc = fut.result(timeout=settings.extraction_timeout_s)
-        if owner and token is None:
+        # local checkpoints change under us: never cached on disk
+        if owner and token is None and not is_local(model_id):
             return cache.put(model_id, revision, doc)
         return cache.encode(doc)
     except concurrent.futures.TimeoutError:
@@ -197,6 +206,8 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
             )
         if "NotFound" in name or "not a valid model identifier" in msg or "404" in msg:
             raise HTTPException(404, f"'{model_id}' was not found on the Hugging Face Hub")
+        if name in ("LocalPathError", "GGUFError"):
+            raise HTTPException(422, msg)
         raise HTTPException(422, f"could not extract '{model_id}': {name}: {msg}")
     finally:
         if owner:
@@ -234,7 +245,20 @@ async def _lifespan(app: FastAPI):
         _pool.shutdown(wait=False, cancel_futures=True)
 
 
-app = FastAPI(title="modelmap", version=__version__, lifespan=_lifespan)
+app = FastAPI(
+    title="modelmap",
+    version=__version__,
+    lifespan=_lifespan,
+    description=(
+        "Architecture graphs, cost estimates and diffs for Hugging Face models — "
+        "no weights downloaded. Read-only; every endpoint is GET and CORS-open."
+    ),
+)
+# the API is a public read-only data source: any origin may call it (§16)
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "HEAD", "OPTIONS"],
+    allow_headers=["X-HF-Token", "If-None-Match"], expose_headers=["ETag", "Content-Disposition"], max_age=86400,
+)
 
 
 @app.middleware("http")
@@ -242,7 +266,10 @@ async def _security_headers(request: Request, call_next):
     resp = await call_next(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    # the SPA may be framed anywhere (?embed=1 in model cards, blogs, docs);
+    # API responses are data and never need framing
+    if request.url.path.startswith("/api/"):
+        resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     return resp
 
 
@@ -255,7 +282,30 @@ def health():
         "cache_entries": cache.count(),
         "workers": settings.workers,
         "inflight": len(_inflight),
+        "allow_local": settings.allow_local,
     }
+
+
+def _check_id(model_id: str) -> str:
+    model_id = model_id.strip("/")
+    try:
+        parse_model_id(model_id, allow_local=settings.allow_local)
+    except ValueError as e:  # LocalPathError is a ValueError
+        raise HTTPException(400 if "must look like" in str(e) else 403 if "not enabled" in str(e) else 404, str(e))
+    return model_id
+
+
+def _assumptions(T: int | None, B: int | None, dtype: str | None) -> Assumptions:
+    a = Assumptions()
+    if T is not None:
+        a.T = max(1, min(T, 1 << 22))
+    if B is not None:
+        a.B = max(1, min(B, 65536))
+    if dtype:
+        if dtype not in WHATIF_DTYPES:
+            raise HTTPException(400, f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
+        a.dtype = dtype
+    return a
 
 
 def _graph_response(raw: bytes, request: Request, cacheable: bool) -> Response:
@@ -283,25 +333,135 @@ def graph(
     refresh: bool = False,
     x_hf_token: str | None = Header(default=None),
 ):
-    model_id = model_id.strip("/")
-    if not _MODEL_ID.fullmatch(model_id):
-        raise HTTPException(400, "model id must look like 'owner/name'")
+    model_id = _check_id(model_id)
+    raw, cacheable = _graph_bytes(model_id, revision, refresh, x_hf_token, request)
+    return _graph_response(raw, request, cacheable=cacheable)
 
+
+def _graph_bytes(model_id: str, revision: str, refresh: bool, token: str | None, request: Request) -> tuple[bytes, bool]:
+    """Cached gzip document or a fresh extraction; (bytes, cacheable)."""
     # tokened (possibly private) repos bypass the shared cache in both directions
-    if x_hf_token is None and not refresh:
+    if token is None and not refresh and not is_local(model_id):
         raw = cache.get_bytes(model_id, revision)
         if raw is not None:
-            return _graph_response(raw, request, cacheable=True)
-
+            return raw, True
     ok, retry = _limiter.allow(_client_key(request))
     if not ok:
         raise HTTPException(
             429, "too many extractions from this client; slow down",
             headers={"Retry-After": str(int(retry) + 1)},
         )
+    return _run_extraction(model_id, revision, token), token is None and not is_local(model_id)
 
-    raw = _run_extraction(model_id, revision, x_hf_token)
-    return _graph_response(raw, request, cacheable=x_hf_token is None)
+
+def _load_doc(model_id: str, revision: str, token: str | None, request: Request) -> dict:
+    import gzip
+    import json
+
+    raw, _ = _graph_bytes(model_id, revision, False, token, request)
+    return json.loads(gzip.decompress(raw))
+
+
+@app.get("/api/summary/{model_id:path}")
+def summary(
+    model_id: str,
+    request: Request,
+    revision: str = "main",
+    T: int | None = Query(default=None, description="sequence length for the cost estimates"),
+    B: int | None = Query(default=None, description="batch size"),
+    dtype: str | None = Query(default=None, description="activation / what-if dtype: bf16 f16 f32 f8 int8 int4"),
+    x_hf_token: str | None = Header(default=None),
+):
+    """Headline numbers for a model: params, active params, stacks, config
+    essentials, and compute / memory / KV-cache estimates at T, B, dtype."""
+    model_id = _check_id(model_id)
+    doc = _load_doc(model_id, revision, x_hf_token, request)
+    out = summarize(doc, _assumptions(T, B, dtype))
+    out["urls"] = {
+        "explore": f"/m/{model_id}",
+        "graph": f"/api/graph/{model_id}",
+        "export_csv": f"/api/export/{model_id}?format=csv",
+        "export_md": f"/api/export/{model_id}?format=md",
+    }
+    return out
+
+
+@app.get("/api/export/{model_id:path}")
+def export_model(
+    model_id: str,
+    request: Request,
+    format: str = Query(default="csv", pattern="^(csv|md|markdown|json|dot)$"),
+    revision: str = "main",
+    T: int | None = None,
+    B: int | None = None,
+    dtype: str | None = None,
+    leaves_only: bool = Query(default=False, description="csv: drop container rows"),
+    depth: int = Query(default=3, ge=1, le=8, description="dot: cluster depth"),
+    download: bool = Query(default=False, description="send as an attachment"),
+    x_hf_token: str | None = Header(default=None),
+):
+    """The model rendered for other tools: a per-module CSV (params, shapes,
+    dtype, cost columns), a Markdown summary, the raw JSON document, or a
+    Graphviz DOT file."""
+    from modelmap.export import render
+
+    model_id = _check_id(model_id)
+    doc = _load_doc(model_id, revision, x_hf_token, request)
+    text, media = render(doc, format, _assumptions(T, B, dtype), leaves_only=leaves_only, depth=depth, pretty=True)
+    ext = {"csv": "csv", "md": "md", "markdown": "md", "json": "json", "dot": "dot"}[format]
+    fname = model_id.replace("/", "--").replace(":", "_") + f".{ext}"
+    headers = {"Content-Disposition": f"{'attachment' if download else 'inline'}; filename=\"{fname}\""}
+    if x_hf_token is None and not is_local(model_id):
+        headers["Cache-Control"] = f"public, max-age={settings.cache_max_age_s}"
+    return PlainTextResponse(text, media_type=media + "; charset=utf-8", headers=headers)
+
+
+@app.get("/api/plan/{model_id:path}")
+def plan(
+    model_id: str,
+    request: Request,
+    revision: str = "main",
+    gpus: int = Query(default=1, ge=1, le=4096),
+    gpu_memory_gb: float = Query(default=80, ge=0, le=100000),
+    tp: int = Query(default=1, ge=1, le=4096, description="tensor-parallel degree"),
+    pp: int = Query(default=1, ge=1, le=4096, description="pipeline-parallel degree"),
+    T: int = Query(default=4096, ge=1, le=1 << 22),
+    B: int = Query(default=1, ge=1, le=65536),
+    dtype: str = Query(default="bf16"),
+    headroom: float = Query(default=0.1, ge=0, le=0.9),
+    x_hf_token: str | None = Header(default=None),
+):
+    """Serving placement estimate: per-GPU weights / KV / activation bytes for
+    a TP × PP layout, which layers land on which stage, whether it fits, and
+    the KV-limited maximum context at this batch (design doc §17)."""
+    model_id = _check_id(model_id)
+    if dtype not in WHATIF_DTYPES:
+        raise HTTPException(400, f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
+    doc = _load_doc(model_id, revision, x_hf_token, request)
+    req = PlanRequest(gpus=gpus, gpu_memory_gb=gpu_memory_gb, tp=tp, pp=pp, T=T, B=B, dtype=dtype, headroom=headroom)
+    return plan_serving(doc, req).to_dict()
+
+
+@app.get("/api/compare")
+def compare_models(
+    request: Request,
+    a: str = Query(description="model id A"),
+    b: str = Query(description="model id B"),
+    format: str = Query(default="json", pattern="^(json|md|markdown)$"),
+    changed_only: bool = Query(default=True, description="json: omit identical pairs"),
+    x_hf_token: str | None = Header(default=None),
+):
+    """Align two module trees (by path, then role) and list what changed,
+    was added, or removed — plus the config diff."""
+    from modelmap.compare import align, diff_markdown
+
+    a, b = _check_id(a), _check_id(b)
+    da = _load_doc(a, "main", x_hf_token, request)
+    db = _load_doc(b, "main", x_hf_token, request)
+    al = align(da, db)
+    if format != "json":
+        return PlainTextResponse(diff_markdown(da, db, al), media_type="text/markdown; charset=utf-8")
+    return {"a": a, "b": b, **al.to_dict(changed_only=changed_only)}
 
 
 def _with_cache(entries: list[dict]) -> list[dict]:

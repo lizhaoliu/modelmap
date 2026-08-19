@@ -73,3 +73,12 @@ describe('cost lens', () => {
     expect(nLong / nShort).toBeCloseTo(32768 / 128, 5)
   })
 })
+
+describe('tied embeddings', () => {
+  it('gpt2: a tied lm_head is stored once — active params equal params_total', () => {
+    const { doc, rep } = run('gpt2')
+    expect(rep.root.activeParams).toBe(doc.params_total)
+    expect(rep.root.paramBytes).toBe(doc.params_total * 4)
+    expect(rep.notes.join()).toMatch(/tied/)
+  })
+})

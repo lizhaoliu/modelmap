@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchGallery, gotoCompare, type Gallery, type GalleryEntry } from '../api'
+import { fetchGallery, fetchHealth, gotoCompare, type Gallery, type GalleryEntry } from '../api'
 import { fmtCount, fmtParams } from '../fmt'
 import { useStore } from '../store'
 import { ModelSearch } from './ModelSearch'
@@ -8,8 +8,11 @@ export function Landing() {
   const loadModel = useStore((s) => s.loadModel)
   const [gallery, setGallery] = useState<Gallery | null>(null)
   const [cmpA, setCmpA] = useState('')
+  const [allowLocal, setAllowLocal] = useState(false)
+  const [localPath, setLocalPath] = useState('')
   useEffect(() => {
     void fetchGallery().then(setGallery)
+    void fetchHealth().then((h) => setAllowLocal(Boolean(h?.allow_local)))
   }, [])
 
   const openFlow = (id: string) => {
@@ -46,6 +49,28 @@ export function Landing() {
             {gallery.classics.map((g) => <Card key={g.id} g={g} loadModel={loadModel} openFlow={openFlow} />)}
           </div>
         </section>
+      )}
+      {allowLocal && (
+        <form
+          className="mm-local-entry"
+          aria-label="Open a local checkpoint"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const p = localPath.trim()
+            if (p) void loadModel(p.startsWith('local:') ? p : `local:${p}`)
+          }}
+        >
+          <span className="mm-cmp-entry-label">local</span>
+          <input
+            value={localPath}
+            onChange={(e) => setLocalPath(e.target.value)}
+            placeholder="/path/to/checkpoint-dir, model.safetensors or model.gguf"
+            spellCheck={false}
+            aria-label="Local checkpoint path"
+          />
+          <button className="mm-btn" type="submit">open</button>
+          <span className="mm-cmp-entry-hint">this server runs on your machine, so your own fine-tunes and GGUFs work too</span>
+        </form>
       )}
       <section className="mm-cmp-entry" aria-label="Compare two models">
         <span className="mm-cmp-entry-label">compare</span>

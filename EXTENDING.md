@@ -70,7 +70,23 @@ support a new tower input convention, extend `_pixel_input` there; to help
 detection, towers are found by class name (`Vision|Visual|Siglip|Clip|…`,
 `Audio|Whisper|Speech|…`) and by *not* owning a token vocabulary.
 
-## 4. Kinds, colors, captions
+## 4. GGUF tensor names and quant types
+
+`gguf.py` reads GGUF headers through HTTP range requests and maps llama.cpp's standard tensor names
+onto HF module paths (`blk.N.attn_q` → `model.layers.N.self_attn.q_proj`, `ffn_*_exps` → `mlp.experts`, …)
+in `_BLK` / `_TOP`. A new architecture with different names: extend those tables (unmapped tensors are
+counted in a note, never fatal). Bits-per-weight for quant types live in `analytics.DTYPE_BYTES` (and the
+TypeScript twin in `web/src/analytics/cost.ts`); a new ggml type needs an entry in `gguf.GGML_TYPES` plus
+both tables. Config mapping reuses transformers' own `GGUF_CONFIG_MAPPING`; architectures it lacks fall back
+to the weights view built straight from the tensor table.
+
+## 5. Analytics twins
+
+Cost, planner and compare logic exist twice on purpose — Python (`analytics.py`, `compare.py`) for the
+CLI / REST / MCP, TypeScript (`web/src/analytics/`, `web/src/compare/`) for the live UI. `tests/test_analytics.py`
+and `web/tests/*.test.ts` pin the same fixture numbers; change both or the tests tell you.
+
+## 6. Kinds, colors, captions
 
 Node `kind` (embedding / attention / mlp / moe / norm / linear / conv / head /
 container / module) is assigned in `extract._classify` from class and leaf

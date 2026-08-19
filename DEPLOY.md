@@ -44,6 +44,14 @@ Rule of thumb: **1 GB RAM per worker + 0.5 GB headroom.** A 1 GB box runs
 | `MODELMAP_CACHE_MAX_AGE` | `300` | `Cache-Control: max-age` for cached graphs (a `revision=main` repo can move) |
 | `HF_HOME` | (image: `/data/hf`) | where `config.json` metadata is cached |
 | `HF_TOKEN` | unset | **do not set on a public deployment** — visitors send their own token per request (`X-HF-Token`), which bypasses the shared cache in both directions |
+| `MODELMAP_ALLOW_LOCAL` | `0` | accept `local:/path` ids (read checkpoints from the server's disk). `modelmap serve` on loopback turns it on automatically (`--no-local` to refuse); **never set it on a public deployment** — it would let visitors map any readable file on the host |
+
+## Public API surface
+
+Everything is `GET`, read-only, CORS-open: `/api/graph`, `/api/summary`, `/api/export`, `/api/plan`, `/api/compare`,
+`/api/gallery`, `/api/search`, `/api/health`, plus OpenAPI at `/docs`. The SPA may be framed anywhere (`?embed=1`
+embeds); API responses send `X-Frame-Options: SAMEORIGIN`. Export/summary/plan/compare endpoints reuse the graph
+cache and the same rate limiting as `/api/graph` for uncached ids (see [docs/API.md](docs/API.md)).
 
 ## Security model (design doc §05)
 

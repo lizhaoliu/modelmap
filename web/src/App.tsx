@@ -35,6 +35,11 @@ function LoadingOverlay({ modelId }: { modelId: string }) {
   )
 }
 
+/** ?embed=1: chrome-less view for iframes (model cards, blogs, docs) */
+export function isEmbed(): boolean {
+  return new URL(location.href).searchParams.get('embed') === '1'
+}
+
 function urlModel(): string | null {
   const m = location.pathname.match(/^\/m\/(.+)$/)
   return m ? decodeURIComponent(m[1]) : null
@@ -56,8 +61,10 @@ export default function App() {
   const loadModel = useStore((s) => s.loadModel)
   const select = useStore((s) => s.select)
   const [compare, setCompare] = useState<[string, string] | null>(() => urlCompare())
+  const embed = isEmbed()
 
   useEffect(() => {
+    if (embed) document.documentElement.dataset.embed = '1'
     const boot = async () => {
       const id = urlModel()
       if (!id) return
@@ -86,19 +93,32 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const fullUrl = (() => {
+    const u = new URL(location.href)
+    u.searchParams.delete('embed')
+    return u.toString()
+  })()
+
   return (
     <ReactFlowProvider>
-      <div className="mm-app">
-        <TopBar />
+      <div className={`mm-app ${embed ? 'is-embed' : ''}`}>
+        {!embed && <TopBar />}
         <div className="mm-main">
           {compare ? (
             <CompareView idA={compare[0]} idB={compare[1]} />
           ) : doc ? (
             <>
               <Canvas />
-              <Sheet>
-                <Inspector />
-              </Sheet>
+              {!embed && (
+                <Sheet>
+                  <Inspector />
+                </Sheet>
+              )}
+              {embed && (
+                <a className="mm-embed-badge" href={fullUrl} target="_blank" rel="noreferrer" title="Open the full interactive map on modelmap">
+                  <b>modelmap</b> {doc.model_id} <span className="mm-dim">↗</span>
+                </a>
+              )}
             </>
           ) : (
             !loading && !error && <Landing />

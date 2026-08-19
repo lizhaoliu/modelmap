@@ -3,7 +3,7 @@ import { fmtLens, lensValue } from '../analytics/cost'
 import { useCostStore } from '../analytics/costStore'
 import { fmtParams, leafName } from '../fmt'
 import { useStore } from '../store'
-import type { MMNode } from './layout'
+import { stackTitle, type MMNode } from './layout'
 import type { GNode } from '../types'
 
 /** Lens-aware badge text and heat (0–100) for a node. */
@@ -42,7 +42,7 @@ function handles(dir: 'h' | 'v') {
 export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
   const toggleExpand = useStore((s) => s.toggleExpand)
   const expandMany = useStore((s) => s.expandMany)
-  const { g, repeat, stackOf, hasChildren, dir } = data
+  const { g, repeat, stackOf, stackTotal, stackRuns, stackLoose, hasChildren, dir } = data
   const { badge, heat } = useLens(g)
   const diff = useStore((s) => s.diff?.get(g.id))
   const cls = [
@@ -57,9 +57,10 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
     .filter(Boolean)
     .join(' ')
 
-  // opening a stack goes straight into the representative block
+  // opening a stack goes straight into the representative block(s)
+  const index = useStore((s) => s.index)
   const open = () => {
-    if (stackOf) expandMany([g.id, stackOf.representative])
+    if (stackOf) expandMany([g.id, ...(index?.repeatsByParent.get(g.id) ?? []).map((r) => r.representative)])
     else toggleExpand(g.id)
   }
 
@@ -72,13 +73,13 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
         {stackOf && (
           <button
             className="mm-badge"
-            title={`${stackOf.count} structurally identical blocks — click to open one`}
+            title={`${stackTitle(stackTotal ?? stackOf.count, stackRuns, stackLoose)} — click to open one${stackRuns ? ' of each' : ''}`}
             onClick={(e) => {
               e.stopPropagation()
               open()
             }}
           >
-            ×{stackOf.count}
+            ×{stackTotal ?? stackOf.count}
           </button>
         )}
         {!stackOf && repeat && (
@@ -110,7 +111,7 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
 /** Expanded container: header strip; children are separate flow nodes inside. */
 export function ContainerNode({ data, selected }: NodeProps<MMNode>) {
   const toggleExpand = useStore((s) => s.toggleExpand)
-  const { g, repeat, stackOf, dir } = data
+  const { g, repeat, stackOf, stackTotal, stackRuns, stackLoose, dir } = data
   const { badge, heat } = useLens(g)
   const diff = useStore((s) => s.diff?.get(g.id))
   const cls = [
@@ -146,8 +147,8 @@ export function ContainerNode({ data, selected }: NodeProps<MMNode>) {
           </span>
         )}
         {stackOf && (
-          <span className="mm-badge is-static" title={`children are ${stackOf.count} identical blocks`}>
-            ×{stackOf.count}
+          <span className="mm-badge is-static" title={`children: ${stackTitle(stackTotal ?? stackOf.count, stackRuns, stackLoose)}`}>
+            ×{stackTotal ?? stackOf.count}
           </span>
         )}
         {badge && <span className="mm-params">{badge}</span>}

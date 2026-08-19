@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = 3  # 3: edges in execution order with aux (side-input) edges; 2: attrs
+SCHEMA_VERSION = 4  # 4: variant / variants / weights_format; 3: execution-order + aux edges; 2: attrs
 
 # node kinds drive color, icon, and collapse defaults in the client
 KINDS = (
@@ -74,6 +74,12 @@ class Graph:
     edges: list[Edge]
     trace: list[TraceStep]
     notes: list[str] = field(default_factory=list)
+    # checkpoint flavour: "safetensors" | "gguf" | "pytorch" | None (config only)
+    weights_format: str | None = None
+    # GGUF repos hold several quantizations; `variant` is the one this document
+    # describes ("Q4_K_M") and `variants` every label the repo offers
+    variant: str | None = None
+    variants: list[str] = field(default_factory=list)
 
     def to_json_dict(self) -> dict[str, Any]:
         return asdict(self)

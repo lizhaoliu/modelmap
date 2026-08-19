@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "modelmap — view on Hugging Face",
+  "version": "0.2.0",
+  "description": "Adds a 'view in modelmap' button to Hugging Face model pages: an interactive, animated architecture map with tensor shapes, cost estimates and diffs — no weights downloaded.",
+  "homepage_url": "https://modelmap.cc",
+  "icons": { "48": "icon48.png", "128": "icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://huggingface.co/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": []
+}

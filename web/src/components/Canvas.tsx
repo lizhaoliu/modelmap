@@ -16,6 +16,7 @@ import { useFlowStore } from '../flow/flowStore'
 import { layoutGraph, type MMNode, type Rect } from '../graph/layout'
 import { edgeTypes } from '../graph/edges'
 import { nodeTypes } from '../graph/nodes'
+import { useViewStore } from '../graph/viewStore'
 import { useStore } from '../store'
 import type { Kind } from '../types'
 import { useIsMobile } from '../useMobile'
@@ -66,10 +67,13 @@ export function Canvas({
   link,
   flowEnabled = true,
   costs = true,
+  primary = true,
 }: {
   link?: { group: LinkGroup; id: string }
   flowEnabled?: boolean
   costs?: boolean
+  /** the main /m/{id} canvas publishes its view for the export menu */
+  primary?: boolean
 } = {}) {
   const doc = useStore((s) => s.doc)
   const index = useStore((s) => s.index)
@@ -109,6 +113,7 @@ export function Canvas({
     layoutGraph(doc, index, expanded).then((v) => {
       if (!alive) return
       setView(v)
+      if (primary) useViewStore.getState().set(v)
       if (lastModel.current !== doc.model_id) {
         lastModel.current = doc.model_id
         requestAnimationFrame(() => fitView({ padding: pad }))
@@ -124,7 +129,7 @@ export function Canvas({
     return () => {
       alive = false
     }
-  }, [doc, index, expanded, fitView, fitBounds, lastExpanded, clearLastExpanded, pad])
+  }, [doc, index, expanded, fitView, fitBounds, lastExpanded, clearLastExpanded, pad, primary])
 
   const nodes = useMemo(() => {
     // ancestors of the selection get a strengthened border — the trail

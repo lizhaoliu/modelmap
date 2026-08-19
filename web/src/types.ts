@@ -1,4 +1,4 @@
-// Mirrors src/modelmap/schema.py (SCHEMA_VERSION 1)
+// Mirrors src/modelmap/schema.py (SCHEMA_VERSION 4)
 
 export type Fidelity = 'full' | 'structural' | 'weights'
 
@@ -55,6 +55,11 @@ export interface GraphDoc {
   edges: GEdge[]
   trace: TraceStep[]
   notes: string[]
+  /** "safetensors" | "gguf" | "pytorch" | null */
+  weights_format?: string | null
+  /** GGUF: the quant label this document describes, and every label the repo offers */
+  variant?: string | null
+  variants?: string[]
 }
 
 /** Precomputed lookups for one loaded document. */

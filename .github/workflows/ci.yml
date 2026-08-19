@@ -16,7 +16,7 @@ jobs:
       - run: npm ci --no-audit --no-fund && npm test && npm run build
         working-directory: web
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra mcp
       - run: uv run pytest -q
       - name: build wheel (ships the SPA)
         run: uv build && unzip -l dist/*.whl | grep -q 'modelmap/web/index.html'
