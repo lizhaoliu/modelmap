@@ -112,6 +112,7 @@ def hub_fetcher(model_id: str, filename: str, revision: str, token: str | None) 
         r.raise_for_status()
         return r.content
 
+    fetch.close = client.close  # type: ignore[attr-defined]
     return fetch
 
 
@@ -222,15 +223,20 @@ def read_header(fetch: Fetch) -> GGUFHeader:
     tensor table is complete."""
     size = INITIAL_FETCH
     buf = b""
-    while True:
-        chunk = fetch(len(buf), size - len(buf))
-        buf += chunk
-        try:
-            return _parse(buf)
-        except _NeedMore:
-            if not chunk or len(buf) >= MAX_HEADER:
-                raise GGUFError("GGUF header is truncated or larger than the read limit")
-            size = min(size * 2, MAX_HEADER)
+    try:
+        while True:
+            chunk = fetch(len(buf), size - len(buf))
+            buf += chunk
+            try:
+                return _parse(buf)
+            except _NeedMore:
+                if not chunk or len(buf) >= MAX_HEADER:
+                    raise GGUFError("GGUF header is truncated or larger than the read limit")
+                size = min(size * 2, MAX_HEADER)
+    finally:
+        close = getattr(fetch, "close", None)
+        if close:
+            close()
 
 
 # --------------------------------------------------------------- variants
