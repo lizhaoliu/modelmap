@@ -79,3 +79,27 @@ def test_contiguous_runs_win_and_leftovers_regroup():
         nodes += _layer(i, dim=dim)
     _, repeats = collapse_repeats(nodes)
     assert [(r.representative, r.count) for r in repeats] == [("m.layers.0", 3), ("m.layers.4", 3), ("m.layers.7", 3)]
+
+
+def test_named_siblings_never_collapse():
+    # four identical norms (contiguous or not) and query/key/value are roles,
+    # not a stack — only numbered siblings fold
+    nodes = [_node("", None, 0), _node("blk", "", 0)]
+    order = 0
+    for name, shape in (("norm_a", [8]), ("norm_b", [8]), ("norm_c", [8]), ("norm_d", [8]), ("query", [8, 8]), ("key", [8, 8]), ("value", [8, 8])):
+        nodes.append(_node(f"blk.{name}", "blk", order, cls="Norm" if "norm" in name else "Linear", shapes={"weight": shape}))
+        order += 1
+    pruned, repeats = collapse_repeats(nodes)
+    assert repeats == [] and len(pruned) == len(nodes)
+
+
+def test_repeats_inside_collapsed_blocks_are_dropped():
+    # every layer holds an experts list; only the representative layer's run survives
+    nodes = [_node("", None, 0), _node("m", "", 0), _node("m.layers", "m", 0)]
+    for i in range(3):
+        nodes += [_node(f"m.layers.{i}", "m.layers", i), _node(f"m.layers.{i}.experts", f"m.layers.{i}", 0)]
+        for e in range(4):
+            nodes.append(_node(f"m.layers.{i}.experts.{e}", f"m.layers.{i}.experts", e, cls="Expert", shapes={"w": [4, 4]}))
+    pruned, repeats = collapse_repeats(nodes)
+    assert [(r.parent, r.count) for r in repeats] == [("m.layers", 3), ("m.layers.0.experts", 4)]
+    assert all(n.id.startswith(("m.layers.0", "m.layers", "m", "")) for n in pruned)

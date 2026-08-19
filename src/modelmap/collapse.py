@@ -5,11 +5,14 @@ numeric index in a module's name — so a "×36" stack is a structural fact, not
 a naming convention. Runs of ≥ MIN_RUN consecutive identical siblings ship as
 one representative subtree plus a Repeat record.
 
-Siblings left over by the contiguous pass are grouped again by signature
-regardless of adjacency: architectures that *interleave* two block designs
-(DeepSeek-V4 alternates a sliding-window and a compressed-attention layer;
-Gemma alternates local/global) still collapse — into two Repeats whose
-members are non-contiguous ("0, 1, 3, 5, …" and "2, 4, 6, …").
+Only *numbered* siblings (a ModuleList: "0", "1", "2", …) can collapse —
+position carries no role there. Named siblings never do: BERT's query / key /
+value or a block's four identical RMSNorms are different roles with equal
+shapes. Siblings left over by the contiguous pass are grouped again by
+signature regardless of adjacency, so architectures that *interleave* two
+block designs (DeepSeek-V4 alternates a sliding-window and a
+compressed-attention layer) collapse into two Repeats whose members are
+non-contiguous ("0, 1, 3, 5, …" and "2, 4, 6, …").
 """
 
 from __future__ import annotations
@@ -59,6 +62,11 @@ def collapse_repeats(nodes: list[Node]) -> tuple[list[Node], list[Repeat]]:
             doomed.update(_descendants(n.id, children))
 
     for parent, ks in children.items():
+        # only numbered siblings (ModuleList / Sequential / expert dicts) can be
+        # a stack: named siblings are roles — BERT's query/key/value or Gemma's
+        # four norms are identical in shape but must never fold into "query ×3"
+        if not all(n.id.rsplit(".", 1)[-1].isdigit() for n in ks):
+            continue
         taken: set[str] = set()
         # pass 1: contiguous runs
         i = 0
@@ -79,6 +87,9 @@ def collapse_repeats(nodes: list[Node]) -> tuple[list[Node], list[Repeat]]:
         for run in groups.values():
             if len(run) >= MIN_RUN:
                 record(parent, run)
+    # repeats whose parent itself got collapsed away are invisible (their
+    # representative's twin inside the surviving block carries the same run)
+    repeats = [r for r in repeats if r.parent not in doomed]
     # a parent's repeats in the order their first members appear
     repeats.sort(key=lambda r: (r.parent, next(n.order for n in children[r.parent] if n.id == r.representative)))
 

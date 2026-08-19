@@ -441,6 +441,15 @@ def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> None:
         notes.append(f"no safetensors metadata: {type(e).__name__}")
         return
     qlabel = _quant_label(config)
+    # checkpoints in a vendor layout (DeepSeek's "layers.N.ffn.experts.3.w1")
+    # are renamed on load by transformers' conversion mapping; apply the same
+    # renames so tensors find their modules
+    renames = _checkpoint_renames(getattr(config, "model_type", None))
+    if renames:
+        tensors = [(_apply_renames(t, renames), shape, dtype) for t, shape, dtype in tensors]
+    # a separate dtype for routed experts (DeepSeek-V4: fp4 experts, fp8 elsewhere)
+    expert_label = getattr(config, "expert_dtype", None)
+    expert_label = str(expert_label).lower() if isinstance(expert_label, str) else None
     # module → {leaf: (dtype, numel)}
     per_module: dict[str, dict[str, tuple[str, int]]] = defaultdict(dict)
     for tname, shape, dtype in tensors:
@@ -456,17 +465,15 @@ def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> None:
     dtype_by_module: dict[str, str] = {}
     quantized = 0
     for mod, leaves in per_module.items():
-        packed = any(k in leaves for k in _PACKED) or (
-            "weight" in leaves and leaves["weight"][0] in ("i32", "u8", "i8", "f8_e4m3", "f8_e5m2")
-        )
+        # the module's main tensor: `weight` if present, else the largest
+        main_leaf = "weight" if "weight" in leaves else max(leaves, key=lambda k: leaves[k][1])
+        main_dtype = leaves[main_leaf][0]
+        packed = any(k in leaves for k in _PACKED) or main_dtype in ("i32", "u8", "i8", "f8_e4m3", "f8_e5m2")
         if qlabel and packed:
-            dtype_by_module[mod] = qlabel
+            dtype_by_module[mod] = expert_label if expert_label and re.search(r"(^|\.)experts(\.|$)", mod) and "shared" not in mod else qlabel
             quantized += 1
             continue
-        if "weight" in leaves:
-            dtype_by_module[mod] = leaves["weight"][0]
-        else:
-            dtype_by_module[mod] = max(leaves.values(), key=lambda x: x[1])[0]
+        dtype_by_module[mod] = main_dtype
     # checkpoint names may omit the base-model prefix (gpt2: "h.0.attn…" for
     # module "transformer.h.0.attn…"), and per-expert tensors
     # ("…experts.7.gate_proj") belong to a fused experts module — resolve each
@@ -491,10 +498,52 @@ def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> None:
             votes[target][d] += 1
     for nid, c in votes.items():
         by_id[nid].dtype = c.most_common(1)[0][0]
-    if quantized and qlabel:
-        hit = sum(1 for n in nodes if n.dtype == qlabel)
-        method = str((getattr(config, "quantization_config", None) or {}).get("quant_method", "") if isinstance(getattr(config, "quantization_config", None), dict) else "")
-        notes.append(
-            f"{hit} module types carry {qlabel} quantized weights"
-            + (f" ({method})" if method else " (quantization_config)")
-        )
+    if qlabel:
+        qc = getattr(config, "quantization_config", None)
+        method = str(qc.get("quant_method", "")) if isinstance(qc, dict) else ""
+        hit = sum(1 for n in nodes if n.dtype and n.dtype in (qlabel, expert_label))
+        if hit:
+            notes.append(
+                f"{hit} module types carry {qlabel} quantized weights"
+                + (f"; routed experts {expert_label}" if expert_label and any(n.dtype == expert_label for n in nodes) else "")
+                + (f" ({method})" if method else " (quantization_config)")
+            )
+        else:
+            notes.append(
+                f"quantization_config says {method or qlabel}, but the checkpoint's tensor names did not match "
+                "the module tree — weights are shown at the config's declared dtype"
+            )
+
+
+def _checkpoint_renames(model_type: str | None) -> list[tuple[re.Pattern, str]]:
+    """(pattern, replacement) pairs transformers applies to this model type's
+    checkpoint keys on load (transformers ≥ 5 conversion mapping); [] otherwise."""
+    if not model_type:
+        return []
+    try:
+        from transformers.conversion_mapping import get_checkpoint_conversion_mapping
+    except ImportError:
+        return []
+    try:
+        mapping = get_checkpoint_conversion_mapping(model_type) or []
+    except Exception:
+        return []
+    out: list[tuple[re.Pattern, str]] = []
+    for conv in mapping:
+        srcs = getattr(conv, "source_patterns", None) or []
+        tgts = getattr(conv, "target_patterns", None) or []
+        if not srcs or not tgts:
+            continue
+        for src in srcs:
+            try:
+                out.append((re.compile(src), tgts[0]))
+            except re.error:
+                continue
+    return out
+
+
+def _apply_renames(name: str, renames: list[tuple[re.Pattern, str]]) -> str:
+    for pat, rep in renames:
+        if pat.search(name):
+            name = pat.sub(rep, name, count=1)
+    return name

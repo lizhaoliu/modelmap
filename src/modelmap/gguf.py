@@ -355,8 +355,10 @@ def config_from_header(h: GGUFHeader) -> tuple[Any, list[str]]:
             kwargs["head_dim"] = kl
     # tied embeddings: no separate output tensor
     kwargs["tie_word_embeddings"] = not any(t.name == "output.weight" for t in h.tensors)
-    # the file's dominant float type is the closest thing to a declared dtype
-    kwargs["dtype"] = "bfloat16" if any(t.dtype == "bf16" for t in h.tensors) else "float16"
+    # instantiate under bf16: shapes don't care, and some MoE kernels assert
+    # bf16 inputs even on meta tensors (the real quant types come from the
+    # tensor table afterwards)
+    kwargs["dtype"] = "bfloat16"
     try:
         config = AutoConfig.for_model(model_type, **kwargs)
     except Exception as e:  # unknown model_type in this transformers version
