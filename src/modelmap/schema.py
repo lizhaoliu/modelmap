@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = 4  # 4: variant / variants / weights_format; 3: execution-order + aux edges; 2: attrs
+SCHEMA_VERSION = 5  # 5: only numbered siblings collapse; 4: variant / variants / weights_format; 3: execution-order + aux edges; 2: attrs
 
 # node kinds drive color, icon, and collapse defaults in the client
 KINDS = (

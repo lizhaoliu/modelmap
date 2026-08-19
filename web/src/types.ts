@@ -1,4 +1,4 @@
-// Mirrors src/modelmap/schema.py (SCHEMA_VERSION 4)
+// Mirrors src/modelmap/schema.py (SCHEMA_VERSION 5)
 
 export type Fidelity = 'full' | 'structural' | 'weights'
 
