@@ -82,3 +82,21 @@ describe('tied embeddings', () => {
     expect(rep.notes.join()).toMatch(/tied/)
   })
 })
+
+describe('quantized dtypes', () => {
+  it('GGUF quant types carry fractional bytes per weight and format with bpw', async () => {
+    const { bytesOf, fmtDtype } = await import('../src/analytics/cost')
+    expect(bytesOf('q4_k', 2)).toBeCloseTo(4.5 / 8, 6)
+    expect(bytesOf('Q8_0', 2)).toBeCloseTo(8.5 / 8, 6)
+    expect(bytesOf('nf4', 2)).toBe(0.5)
+    expect(bytesOf('mystery', 2)).toBe(2)
+    expect(fmtDtype('q4_k')).toBe('Q4_K · 4.5 bpw')
+    expect(fmtDtype('bf16')).toBe('bf16')
+    const doc = load('qwen3-8b')
+    for (const n of doc.nodes) if (n.weight_shapes) n.dtype = 'q4_k'
+    const rep = computeCosts(doc, buildIndex(doc), DEFAULT_ASSUMPTIONS)
+    // 8.19B params at 4.5 bits ≈ 4.3 GiB of weights
+    expect(rep.root.paramBytes / 2 ** 30).toBeGreaterThan(4.2)
+    expect(rep.root.paramBytes / 2 ** 30).toBeLessThan(4.4)
+  })
+})
