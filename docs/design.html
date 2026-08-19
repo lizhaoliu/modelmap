@@ -1012,7 +1012,7 @@ footer {
     <li><strong>Outputs</strong> — per stage / per GPU: weights, KV at T, activation, total, fits (≤ capacity × (1 − headroom)); bytes crossing each pipeline boundary per forward (B × T × hidden × bytes); the <em>KV-limited maximum context</em> at this batch; notes when heads don't divide across TP or KV heads are fewer than TP ranks (K/V replicate).</li>
     <li><strong>Where</strong> — <code>fit?</code> in the top bar (state in the URL and localStorage), <code>modelmap plan</code>, <code>/api/plan</code>, the MCP <code>plan_serving</code> tool.</li>
   </ul>
-  <p class="accept">accepts when <b>Qwen3-8B at T = 4096 fits one 24 GB GPU, splits 0–17 / 18–35 at pp = 2 with 32 MB crossing the boundary, and reports a larger max context with two GPUs than one</b>; a 235B MoE at bf16 reports "does not fit" on 8 × 80 GB and fits at f8 / int4 stored dtypes.</p>
+  <p class="accept">accepts when <b>Qwen3-8B at T = 4096 fits one 24 GB GPU, splits 0–17 / 18–35 at pp = 2 with 32 MB crossing the boundary, and reports a larger max context with two GPUs than one</b>; Qwen3-235B-A22B on 4 × 80 GB does not fit at bf16 (438 GB of weights) and fits as the FP8 checkpoint (223 GB).</p>
 </section>
 
 <section id="m8b">
