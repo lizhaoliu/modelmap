@@ -750,6 +750,16 @@ kbd {
 .mm-planner code { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; user-select: all; word-break: break-all; }
 .mm-planner .mm-link { margin-left: 8px; font-size: 0.7rem; }
 
+/* github link: an icon button that lines up with the text buttons */
+.mm-btn-gh { display: inline-flex; align-items: center; padding: 5px 8px; text-decoration: none; }
+.mm-btn-gh:hover { color: var(--ink); }
+.mm-landing-links {
+  margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
+  font-size: 0.78rem; color: var(--muted);
+}
+.mm-landing-links a { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; }
+.mm-landing-links a:hover { color: var(--flow-text); }
+
 /* ---------- M9: the map feels alive ---------- */
 /* landing hero: a canned replay running before any click */
 .mm-hero { width: min(760px, 100%); display: flex; flex-direction: column; gap: 6px; }
@@ -910,7 +920,7 @@ kbd {
   .mm-canvas { flex: 1; min-height: 0; }
   .mm-topbar { height: 48px; padding: 0 10px; gap: 8px; }
   .mm-model-chip, .mm-total-params, .mm-lens, .mm-btn-share, .mm-topbar .mm-btn-cmp, .mm-btn-export,
-  .mm-fidelity, .mm-topbar .mm-btn-token, .mm-topbar .mm-btn-theme, .mm-variant { display: none; }
+  .mm-fidelity, .mm-topbar .mm-btn-token, .mm-topbar .mm-btn-theme, .mm-variant, .mm-topbar .mm-btn-gh { display: none; }
   .mm-embed-badge { font-size: 0.7rem; }
   .mm-topbar-center { min-width: 0; }
   .mm-search { width: 100%; }
