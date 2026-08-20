@@ -27,7 +27,7 @@ def client(monkeypatch, tmp_path):
     calls = []
     lock = threading.Lock()
 
-    def fake_extract(model_id, revision, token, allow_local=False):
+    def fake_extract(model_id, revision, token, allow_local=False, trust_remote_code=False):
         with lock:
             calls.append(model_id)
         time.sleep(0.15)  # long enough for concurrent requests to pile up
@@ -161,7 +161,7 @@ def api(monkeypatch, tmp_path):
     monkeypatch.setenv("MODELMAP_CACHE", str(tmp_path))
     docs = {"Qwen/Qwen3-8B": _fixture("qwen3-8b"), "Qwen/Qwen2.5-7B": _fixture("qwen2.5-7b")}
 
-    def fake_extract(model_id, revision, token, allow_local=False):
+    def fake_extract(model_id, revision, token, allow_local=False, trust_remote_code=False):
         if model_id in docs:
             return docs[model_id]
         if model_id.startswith("local:"):
@@ -255,7 +255,7 @@ def test_frame_policy_and_spa(api):
 def test_hub_rate_limit_maps_to_503_with_retry_after(monkeypatch, tmp_path):
     monkeypatch.setenv("MODELMAP_CACHE", str(tmp_path))
 
-    def angry(model_id, revision, token, allow_local=False):
+    def angry(model_id, revision, token, allow_local=False, trust_remote_code=False):
         raise RuntimeError("HfHubHTTPError: 429 Too Many Requests: you have reached your 'api' rate limit.\nRetry after 86 seconds (0/500 requests remaining)")
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
@@ -268,3 +268,20 @@ def test_hub_rate_limit_maps_to_503_with_retry_after(monkeypatch, tmp_path):
         r = c.get("/api/graph/some/model")
     assert r.status_code == 503 and r.headers["retry-after"] == "86" and "token" in r.json()["detail"]
     pool.shutdown(wait=False)
+
+
+def test_train_endpoint_and_plan_throughput(api):
+    r = api.get("/api/train/Qwen/Qwen3-8B?method=qlora&lora_rank=16&gpus=1&gpu_memory_gb=24&T=2048")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["fits"] is True and round(d["trainable_params"] / 1e6, 1) == 43.6
+    assert d["max_microbatch"] >= 8
+    r = api.get("/api/train/Qwen/Qwen3-8B?method=full&gpus=1&gpu_memory_gb=24&T=2048")
+    assert r.json()["fits"] is False
+    assert api.get("/api/train/Qwen/Qwen3-8B?method=galore").status_code == 422
+    assert api.get("/api/train/Qwen/Qwen3-8B?gpu=GTX+9999").status_code == 400
+    # serve plan with a named GPU adds throughput
+    r = api.get("/api/plan/Qwen/Qwen3-8B?gpus=1&gpu_memory_gb=80&gpu=A100+80GB&T=4096")
+    t = r.json()["throughput"]
+    assert 65 < t["decode_tok_per_sec_b1"] < 80 and t["gpu"] == "A100 80GB"
+    assert api.get("/api/plan/Qwen/Qwen3-8B?gpu=nope").status_code == 400

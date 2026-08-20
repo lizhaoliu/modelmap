@@ -24,6 +24,7 @@ export function TopBar() {
   const flowActive = useFlowStore((s) => s.active)
   const activateFlow = useFlowStore((s) => s.activate)
   const deactivateFlow = useFlowStore((s) => s.deactivate)
+  const fileDoc = useStore((s) => s.fileDoc)
   const liveOpen = useLiveStore((s) => s.open)
   const toggleLive = useLiveStore((s) => s.toggle)
   const [theme, setTheme] = useState<Theme>(
@@ -83,6 +84,7 @@ export function TopBar() {
       )}
       {!inCompare && doc && (
         <span className="mm-model-chip" title={`revision ${doc.revision} · fidelity ${doc.fidelity}${doc.weights_format ? ` · ${doc.weights_format}` : ''}${doc.notes.length ? '\n' + doc.notes.join('\n') : ''}`}>
+          {fileDoc && <i className="mm-file-tag">file</i>}
           {doc.model_id.replace(/:[^/]+$/, '')}
         </span>
       )}
@@ -130,7 +132,17 @@ export function TopBar() {
               {flowActive ? 'exit flow' : '▶ flow'}
             </button>
           ) : (
-            <button className="mm-btn" disabled title="No trace available (weights view)">
+            <button
+              className="mm-btn"
+              disabled
+              title={
+                (doc.notes.find((n) => n.includes('trust_remote_code')) &&
+                  'No forward trace: this repo needs trust_remote_code (its own Python), which the server refuses. ' +
+                    'Run `modelmap dump <id> --trust-remote-code` locally and drop the .graph.json here for the full map.') ||
+                doc.notes.find((n) => n.includes('weights view') || n.includes('instantiate')) ||
+                'No trace available (weights view)'
+              }
+            >
               ▶ flow
             </button>
           )}

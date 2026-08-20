@@ -710,3 +710,245 @@ def fmt_params(n: float) -> str:
     if n >= 1e3:
         return f"{n / 1e3:.1f}K"
     return f"{n:.0f}"
+
+
+# ------------------------------------------- training planner (§22)
+
+# LoRA target groups: leaf names of the linear modules adapters attach to.
+# Fused 3-D expert weights are excluded — adapters on fused experts are rare
+# and framework-specific.
+LORA_TARGETS: dict[str, tuple[str, ...]] = {
+    "attention": ("q_proj", "k_proj", "v_proj", "o_proj", "qkv_proj", "c_attn", "query", "key", "value", "dense", "out_proj"),
+    "attn-mlp": (
+        "q_proj", "k_proj", "v_proj", "o_proj", "qkv_proj", "c_attn", "query", "key", "value", "dense", "out_proj",
+        "gate_proj", "up_proj", "down_proj", "c_fc", "c_proj", "fc1", "fc2", "wi", "wo",
+    ),
+    "all-linear": (),  # every ≥2-D matmul weight outside embeddings/heads
+}
+
+# bytes per parameter of optimizer state (+ fp32 master weights, the mixed-
+# precision convention): AdamW keeps fp32 m+v (8) + master (4); the 8-bit
+# variant quantizes m+v to 1 byte each but keeps the fp32 master
+OPTIMIZER_BYTES: dict[str, float] = {"adamw": 12.0, "adamw8bit": 6.0}
+
+# NF4 base weights: 4 bits + double-quantized absmax constants ≈ 0.55 B/param
+QLORA_BASE_BYTES = 0.55
+
+
+@dataclass
+class TrainRequest:
+    method: str = "lora"  # full | lora | qlora
+    optimizer: str = "adamw"  # adamw | adamw8bit
+    lora_rank: int = 16
+    lora_targets: str = "attn-mlp"  # attention | attn-mlp | all-linear
+    gpus: int = 1
+    gpu_memory_gb: float = 80
+    sharding: str = "none"  # none | zero2 | zero3 (data parallel across gpus)
+    T: int = 2048
+    B: int = 1  # micro-batch per GPU
+    grad_checkpoint: bool = True
+    flash_attention: bool = True
+    headroom: float = 0.10
+    gpu: str | None = None  # preset name, for the speed estimate
+
+
+@dataclass
+class TrainPlan:
+    request: TrainRequest
+    trainable_params: float
+    total_params: float
+    weight_bytes_per_gpu: float
+    grad_bytes_per_gpu: float
+    optimizer_bytes_per_gpu: float
+    activation_bytes_per_gpu: float
+    total_bytes_per_gpu: float
+    per_gpu_capacity_bytes: float
+    fits: bool
+    max_microbatch: int  # largest per-GPU B that still fits at this T
+    train_tokens_per_sec: float | None  # across all GPUs, when a preset is named
+    notes: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _lora_trainable(doc: dict, index: Index, rep: CostReport, targets: str, rank: int) -> tuple[float, int]:
+    """(adapter params, matched module count) for LoRA at `rank`."""
+    leaf_names = LORA_TARGETS.get(targets, ())
+    total = 0.0
+    matched = 0
+    for n in doc["nodes"]:
+        ws = n.get("weight_shapes") or {}
+        w = ws.get("weight")
+        if not w or len(w) != 2:
+            continue
+        if n["kind"] in ("embedding", "head", "norm"):
+            continue
+        leaf = n["id"].rsplit(".", 1)[-1]
+        if targets != "all-linear" and leaf not in leaf_names:
+            continue
+        m = rep.multiplicity.get(n["id"], 1)
+        out_f, in_f = w
+        total += rank * (in_f + out_f) * m
+        matched += m
+    return total, matched
+
+
+def plan_training(doc: dict, req: TrainRequest | None = None) -> TrainPlan:
+    """Fine-tuning memory estimate (full / LoRA / QLoRA) with data-parallel
+    sharding (ZeRO-2/3), gradient checkpointing and flash-attention toggles.
+
+    Conventions (each carried into the notes): bf16 compute; grads bf16;
+    optimizer = fp32 m+v + fp32 master (AdamW 12 B, 8-bit 6 B per trainable);
+    activations at bf16 from the traced shapes; attention scores add
+    heads × T² unless flash attention.
+    """
+    req = req or TrainRequest()
+    notes: list[str] = []
+    index = build_index(doc)
+    a = Assumptions(T=req.T, B=req.B, dtype="bf16")
+    rep = compute_costs(doc, index, a)
+    c = doc.get("config") or {}
+    params = float(doc.get("params_total") or 0)
+    gpus = max(1, req.gpus)
+    cap = req.gpu_memory_gb * 2**30 * (1 - req.headroom)
+
+    if req.method == "full":
+        trainable = params
+        weight_bytes = params * 2.0
+        notes.append("full fine-tune: every parameter trains (bf16 weights)")
+    else:
+        adapters, matched = _lora_trainable(doc, index, rep, req.lora_targets, req.lora_rank)
+        trainable = adapters
+        if not matched:
+            notes.append(f"no linear modules matched targets '{req.lora_targets}'")
+        else:
+            notes.append(f"LoRA r={req.lora_rank} on {matched} linear modules ({req.lora_targets})")
+        if any((n.get("weight_shapes") or {}) and len(list((n.get("weight_shapes") or {}).values())[0]) == 3 for n in doc["nodes"]):
+            notes.append("fused 3-D expert weights are not LoRA targets here")
+        base = params * (QLORA_BASE_BYTES if req.method == "qlora" else 2.0)
+        if req.method == "qlora":
+            notes.append("QLoRA: frozen base at NF4 (≈0.55 B/param incl. quant constants)")
+        weight_bytes = base + adapters * 2.0
+    grad_bytes = trainable * 2.0
+    opt_bytes = trainable * OPTIMIZER_BYTES.get(req.optimizer, 12.0)
+
+    # activations per GPU (each GPU runs its own micro-batch)
+    layers = _num(c, "num_hidden_layers", "n_layer") or 0
+    hidden = _num(c, "hidden_size", "n_embd") or 0
+    heads = _num(c, "num_attention_heads", "n_head") or 0
+    block_act = 0.0
+    reps = sorted(doc.get("repeats") or [], key=lambda r: -(r["count"] * index.by_id[r["representative"]]["params"]))
+    if reps:
+        block_act = rep.by_node[reps[0]["representative"]].act_bytes
+    full_act = rep.root.act_bytes
+    scores = 0.0 if req.flash_attention else layers * heads * req.B * req.T * req.T * 2.0
+    if req.grad_checkpoint:
+        act_bytes = layers * req.B * req.T * hidden * 2.0 + block_act + (0.0 if req.flash_attention else scores / max(layers, 1))
+        notes.append("gradient checkpointing: layer inputs kept, one block's activations resident during recompute")
+    else:
+        act_bytes = full_act + scores
+        notes.append("no gradient checkpointing: every traced activation held for backward")
+    if not req.flash_attention:
+        notes.append("without flash attention, softmax scores add heads × T² per layer")
+
+    # data-parallel sharding
+    shard = max(1, gpus)
+    if req.sharding == "zero3":
+        w_gpu, g_gpu, o_gpu = weight_bytes / shard, grad_bytes / shard, opt_bytes / shard
+        notes.append("ZeRO-3 / FSDP: weights, grads and optimizer sharded across GPUs (gathering adds transient overhead)")
+    elif req.sharding == "zero2":
+        w_gpu, g_gpu, o_gpu = weight_bytes, grad_bytes / shard, opt_bytes / shard
+        notes.append("ZeRO-2: grads and optimizer sharded; each GPU keeps full weights")
+    else:
+        w_gpu, g_gpu, o_gpu = weight_bytes, grad_bytes, opt_bytes
+        if gpus > 1:
+            notes.append("plain data parallel: every GPU holds a full replica")
+    total = w_gpu + g_gpu + o_gpu + act_bytes
+    fits = total <= cap
+
+    fixed = w_gpu + g_gpu + o_gpu
+    act_per_b = act_bytes / max(req.B, 1)
+    max_b = int((cap - fixed) / act_per_b) if act_per_b > 0 and cap > fixed else 0
+
+    tps: float | None = None
+    if req.gpu and req.gpu in GPU_SPECS:
+        spec = GPU_SPECS[req.gpu]
+        # fwd+bwd ≈ 3 × forward FLOPs; FLOPs = 2 × MACs
+        macs_tok = rep.root.macs / max(1, req.T * req.B)
+        tps = (spec["tflops"] * 1e12 * TRAIN_MFU * gpus) / (6.0 * macs_tok)
+        notes.append(f"speed assumes {int(TRAIN_MFU * 100)}% MFU on {req.gpu}; fwd+bwd ≈ 3× forward FLOPs")
+    return TrainPlan(
+        request=req, trainable_params=trainable, total_params=params,
+        weight_bytes_per_gpu=w_gpu, grad_bytes_per_gpu=g_gpu, optimizer_bytes_per_gpu=o_gpu,
+        activation_bytes_per_gpu=act_bytes, total_bytes_per_gpu=total,
+        per_gpu_capacity_bytes=cap, fits=fits, max_microbatch=max_b,
+        train_tokens_per_sec=tps, notes=notes,
+    )
+
+
+# ------------------------------------------- throughput estimates (§22)
+
+# approximate dense-bf16 TFLOPs and memory bandwidth (GB/s) per preset;
+# marketing sheets vary — these feed *estimates*, always labeled as such
+GPU_SPECS: dict[str, dict[str, float]] = {
+    "H100 80GB": {"tflops": 989, "bw": 3350}, "H200 141GB": {"tflops": 989, "bw": 4800},
+    "A100 80GB": {"tflops": 312, "bw": 2039}, "A100 40GB": {"tflops": 312, "bw": 1555},
+    "L40S 48GB": {"tflops": 362, "bw": 864}, "L4 24GB": {"tflops": 121, "bw": 300},
+    "A10G 24GB": {"tflops": 70, "bw": 600}, "RTX 4090 24GB": {"tflops": 165, "bw": 1008},
+    "RTX 3090 24GB": {"tflops": 71, "bw": 936}, "RTX 5090 32GB": {"tflops": 210, "bw": 1792},
+    "MI300X 192GB": {"tflops": 1307, "bw": 5300}, "B200 180GB": {"tflops": 2250, "bw": 8000},
+    "T4 16GB": {"tflops": 65, "bw": 320},
+}
+PREFILL_MFU = 0.40  # fraction of peak FLOPs a good serving stack reaches in prefill
+DECODE_BW_EFF = 0.60  # fraction of peak bandwidth reached streaming weights in decode
+TRAIN_MFU = 0.35
+
+
+@dataclass
+class Throughput:
+    gpu: str
+    prefill_tok_per_sec: float
+    decode_tok_per_sec_b1: float
+    decode_tok_per_sec_at_b: float
+    batch: int
+    bytes_read_per_token: float
+    notes: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def estimate_throughput(doc: dict, gpu: str, *, tp: int = 1, T: int = 4096, B: int = 1, dtype: str = "bf16") -> Throughput | None:
+    """Roofline speed estimate on a named GPU preset: prefill is compute-bound
+    (MACs vs peak FLOPs at PREFILL_MFU); decode is bandwidth-bound (active
+    weight bytes + the KV cache read every token, vs peak bandwidth at
+    DECODE_BW_EFF). TP aggregates both, ignoring interconnect."""
+    spec = GPU_SPECS.get(gpu)
+    if not spec:
+        return None
+    index = build_index(doc)
+    rep = compute_costs(doc, index, Assumptions(T=T, B=B, dtype=dtype))
+    tokens = max(1, T * B)
+    macs_tok = rep.root.macs / tokens
+    params = float(doc.get("params_total") or 1)
+    active_frac = rep.root.active_params / params if params else 1.0
+    active_bytes = rep.root.param_bytes * active_frac
+    kv_read = rep.root.kv_per_token * T  # the whole cache, read once per decoded token
+    per_seq_bytes = active_bytes + kv_read
+    bw = spec["bw"] * 1e9 * DECODE_BW_EFF * tp
+    flops = spec["tflops"] * 1e12 * PREFILL_MFU * tp
+    prefill = flops / (2.0 * macs_tok)
+    decode_b1 = bw / per_seq_bytes
+    # at batch B the weight read amortizes; each sequence still reads its KV
+    decode_at_b = (B * bw) / (active_bytes + B * kv_read)
+    notes = [
+        f"roofline estimate: prefill at {int(PREFILL_MFU * 100)}% MFU, decode at {int(DECODE_BW_EFF * 100)}% of "
+        f"{spec['bw']:.0f} GB/s; interconnect and scheduler overhead not modeled",
+    ]
+    if active_frac < 0.95:
+        notes.append(f"MoE: decode streams the ≈{active_frac * 100:.0f}% of weights that are active per token")
+    return Throughput(
+        gpu=gpu, prefill_tok_per_sec=prefill, decode_tok_per_sec_b1=decode_b1,
+        decode_tok_per_sec_at_b=decode_at_b, batch=B, bytes_read_per_token=per_seq_bytes, notes=notes,
+    )

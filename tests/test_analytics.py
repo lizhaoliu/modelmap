@@ -147,3 +147,126 @@ def test_tied_lm_head_is_stored_once():
     assert s["active_params"] == doc["params_total"]
     assert s["cost"]["weight_bytes"] == doc["params_total"] * 4  # f32 checkpoint
     assert any("tied" in n for n in s["notes"])
+
+
+def test_trust_remote_code_local_checkpoint(tmp_path):
+    """A local repo whose config demands custom code: refused by default
+    (weights view / error), fully traced with trust_remote_code=True."""
+    import textwrap
+
+    from modelmap.extract import extract_graph
+
+    (tmp_path / "config.json").write_text(json.dumps({
+        "model_type": "toycustom",
+        "architectures": ["ToyModel"],
+        "auto_map": {"AutoConfig": "modeling_toy.ToyConfig", "AutoModel": "modeling_toy.ToyModel"},
+        "hidden_size": 8,
+    }))
+    (tmp_path / "modeling_toy.py").write_text(textwrap.dedent("""
+        import torch
+        from torch import nn
+        from transformers import PretrainedConfig, PreTrainedModel
+
+        class ToyConfig(PretrainedConfig):
+            model_type = "toycustom"
+            def __init__(self, hidden_size=8, **kw):
+                self.hidden_size = hidden_size
+                super().__init__(**kw)
+
+        class ToyModel(PreTrainedModel):
+            config_class = ToyConfig
+            def __init__(self, config):
+                super().__init__(config)
+                self.embed = nn.Embedding(16, config.hidden_size)
+                self.fc = nn.Linear(config.hidden_size, config.hidden_size)
+            def forward(self, input_ids=None, **kw):
+                return self.fc(self.embed(input_ids))
+    """))
+    import torch
+    from safetensors.torch import save_file
+
+    save_file({"embed.weight": torch.zeros(16, 8), "fc.weight": torch.zeros(8, 8)}, str(tmp_path / "model.safetensors"))
+    refused = extract_graph(f"local:{tmp_path}", allow_local=True)
+    assert refused.fidelity == "weights" and "trust_remote_code" in " ".join(refused.notes)
+
+    g = extract_graph(f"local:{tmp_path}", allow_local=True, trust_remote_code=True)
+    assert g.fidelity == "full"
+    assert {n.id for n in g.nodes} >= {"embed", "fc"}
+    assert len(g.trace) >= 2
+
+
+def test_training_planner_lora_qlora_full():
+    doc = load("qwen3-8b")
+    from modelmap.analytics import TrainRequest, plan_training
+
+    lora = plan_training(doc, TrainRequest(method="lora", lora_rank=16, lora_targets="attn-mlp", gpus=1, gpu_memory_gb=24, T=2048))
+    # r × (in+out) over q/k/v/o + gate/up/down across 36 layers = 43.6M
+    assert round(lora.trainable_params / 1e6, 1) == 43.6
+    assert lora.grad_bytes_per_gpu == lora.trainable_params * 2
+    assert lora.optimizer_bytes_per_gpu == lora.trainable_params * 12
+    assert lora.fits  # bf16 base 16.4 GB + adapters + activations < 21.6 GiB
+
+    qlora = plan_training(doc, TrainRequest(method="qlora", lora_rank=16, gpus=1, gpu_memory_gb=24, T=2048))
+    assert qlora.weight_bytes_per_gpu < lora.weight_bytes_per_gpu / 3  # NF4 base
+    assert qlora.fits and qlora.max_microbatch >= 8
+
+    full = plan_training(doc, TrainRequest(method="full", gpus=1, gpu_memory_gb=80, T=2048))
+    # 16 B/param convention: 2 w + 2 g + 12 optim
+    assert full.weight_bytes_per_gpu + full.grad_bytes_per_gpu + full.optimizer_bytes_per_gpu == doc["params_total"] * 16
+    assert not full.fits
+    z3 = plan_training(doc, TrainRequest(method="full", gpus=8, gpu_memory_gb=80, sharding="zero3", T=2048))
+    assert z3.fits and z3.weight_bytes_per_gpu == full.weight_bytes_per_gpu / 8
+
+    ckpt = plan_training(doc, TrainRequest(method="lora", gpus=1, gpu_memory_gb=24, T=2048, grad_checkpoint=True))
+    nockpt = plan_training(doc, TrainRequest(method="lora", gpus=1, gpu_memory_gb=24, T=2048, grad_checkpoint=False))
+    assert nockpt.activation_bytes_per_gpu > 3 * ckpt.activation_bytes_per_gpu
+    noflash = plan_training(doc, TrainRequest(method="lora", gpus=1, gpu_memory_gb=24, T=2048, grad_checkpoint=False, flash_attention=False))
+    # scores: 36 layers × 32 heads × 2048² × 2 B = 9.0 GiB on top
+    assert noflash.activation_bytes_per_gpu - nockpt.activation_bytes_per_gpu == 36 * 32 * 2048 * 2048 * 2
+
+
+def test_throughput_roofline():
+    doc = load("qwen3-8b")
+    from modelmap.analytics import estimate_throughput
+
+    t = estimate_throughput(doc, "A100 80GB", T=4096)
+    # decode B=1: 2039 GB/s × 0.6 / (16.38 GB weights + 0.59 GB KV) ≈ 72 tok/s
+    assert 65 < t.decode_tok_per_sec_b1 < 80
+    assert 6000 < t.prefill_tok_per_sec < 8500
+    t8 = estimate_throughput(doc, "A100 80GB", T=4096, B=8)
+    assert t8.decode_tok_per_sec_at_b > 5 * t.decode_tok_per_sec_b1  # weights amortize
+    assert estimate_throughput(doc, "GTX 9999", T=4096) is None
+    moe = estimate_throughput(load("qwen3-235b-a22b"), "H100 80GB", tp=8, T=4096)
+    assert any("MoE" in n for n in moe.notes)
+    # active fraction ≈ 22/235: decode reads ~44 GB not 470 GB
+    assert moe.bytes_read_per_token < 60e9
+
+
+def test_zoo_tags_families_and_catalog(tmp_path, monkeypatch):
+    from modelmap import zoo
+
+    doc = load("qwen3-235b-a22b")
+    tags = zoo.structural_tags(doc)
+    assert "moe 8/128" in tags and any(t.startswith("gqa") for t in tags)
+    dense = zoo.structural_tags(load("qwen3-8b"))
+    assert "gqa 4×" in dense and not any(t.startswith("moe") for t in dense)
+    ds = zoo.structural_tags(load("deepseek-v3.1"))
+    assert "mla" in ds and "mixed-blocks" in ds
+    assert zoo.family_of("qwen3_moe") == "qwen" and zoo.family_of("deepseek_v4") == "deepseek"
+    assert zoo.family_of("gemma3_text") == "gemma" and zoo.family_of("somefuture2") == "somefuture"
+
+    # catalog: newest schema version wins, one row per model
+    monkeypatch.setenv("MODELMAP_CACHE", str(tmp_path))
+    from modelmap import cache
+
+    old = dict(load("qwen3-8b"))
+    old["schema_version"] = 1
+    cache.put("Qwen/Qwen3-8B", "old", old)
+    cache.put("Qwen/Qwen3-8B", "main", load("qwen3-8b"))
+    cache.put("openai-community/gpt2", "main", load("gpt2"))
+    zoo._cat.update(count=-1, ts=0.0)  # bust the memo
+    cat = zoo.catalog()
+    ids = [e["model_id"] for e in cat]
+    assert sorted(ids) == ["Qwen/Qwen3-8B", "openai-community/gpt2"]
+    q = next(e for e in cat if e["model_id"] == "Qwen/Qwen3-8B")
+    assert q["layers"] == 36 and q["family"] == "qwen" and q["kv_bytes_per_token"] == 36 * 2 * 8 * 128 * 2

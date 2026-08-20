@@ -21,6 +21,14 @@ export interface AttnData {
   data: Float32Array
 }
 
+export interface HeadStat {
+  prev: number
+  first: number
+  self: number
+  entropy: number
+  tag: string
+}
+
 interface LiveState {
   open: boolean
   status: LiveStatus
@@ -39,6 +47,11 @@ interface LiveState {
   genCount: number // generated tokens this session (drives the canvas ripple)
   tokMs: number | null
   temperature: number
+  /** "layer:head" pairs currently silenced (§24) */
+  ablated: string[]
+  /** next-token top-k with no ablations, for the Δ display */
+  baselineTopk: TopEntry[] | null
+  headStats: HeadStat[] | null
 
   toggle: (doc: GraphDoc | null) => void
   close: () => void
@@ -50,6 +63,8 @@ interface LiveState {
   setAttnLayer: (l: number) => void
   setAttnHead: (h: number) => void
   requestLens: () => void
+  toggleAblate: (layer: number, head: number) => void
+  clearAblations: () => void
 }
 
 /** Which models can run live: single-file f32/bf16/f16 safetensors of a
@@ -61,8 +76,8 @@ export function liveSupport(doc: GraphDoc | null): { ok: boolean; sizeMB: number
   const c = doc.config as Record<string, unknown>
   const arch = c.model_type
   if (doc.model_id.startsWith('local:')) return { ok: false, sizeMB: 0, reason: 'local checkpoints stay on your disk' }
-  if (arch !== 'llama' && arch !== 'gpt2')
-    return { ok: false, sizeMB: 0, reason: `live inference supports llama-family and gpt2 checkpoints (this is ${String(arch ?? 'unknown')})` }
+  if (arch !== 'llama' && arch !== 'gpt2' && arch !== 'qwen2' && arch !== 'qwen3')
+    return { ok: false, sizeMB: 0, reason: `live inference supports llama / qwen2 / qwen3 / gpt2 checkpoints (this is ${String(arch ?? 'unknown')})` }
   if (doc.weights_format && doc.weights_format !== 'safetensors')
     return { ok: false, sizeMB: 0, reason: 'live inference needs a safetensors checkpoint' }
   if (doc.fidelity !== 'full') return { ok: false, sizeMB: 0, reason: 'no full trace' }
@@ -111,24 +126,35 @@ function handle(msg: Record<string, unknown> & { t: string }): void {
       set({ status: 'ready', info: msg.info as ModelInfo, progress: null })
       break
     case 'ran':
-      set({
+      set((s) => ({
         status: 'ready',
         tokens: msg.tokens as string[],
         text: msg.text as string,
         topk: msg.topk as TopEntry[],
+        baselineTopk: s.ablated.length ? s.baselineTopk : (msg.topk as TopEntry[]),
         tokMs: msg.ms as number,
         lens: null,
         lensStale: true,
         attn: null,
-      })
+      }))
       get().requestLens()
       refreshAttn()
+      refreshHeadStats()
+      break
+    case 'ablated':
+      set({ ablated: msg.ablated as string[], topk: msg.topk as TopEntry[], lensStale: true })
+      get().requestLens()
+      refreshAttn()
+      break
+    case 'headstats':
+      if ((msg.layer as number) === get().attnLayer) set({ headStats: msg.stats as HeadStat[] })
       break
     case 'tok':
       set((s) => ({
         tokens: [...s.tokens, msg.tok as string],
         text: msg.text as string,
         topk: msg.topk as TopEntry[],
+        baselineTopk: s.ablated.length ? s.baselineTopk : (msg.topk as TopEntry[]),
         tokMs: msg.ms as number,
         genCount: s.genCount + 1,
         lensStale: true,
@@ -156,6 +182,11 @@ function refreshAttn(): void {
   if (s.info && s.tokens.length) getWorker().postMessage({ t: 'attn', layer: s.attnLayer })
 }
 
+function refreshHeadStats(): void {
+  const s = useLiveStore.getState()
+  if (s.info && s.tokens.length) getWorker().postMessage({ t: 'headstats', layer: s.attnLayer })
+}
+
 export const useLiveStore = create<LiveState>((set, get) => ({
   open: false,
   status: 'idle',
@@ -174,6 +205,9 @@ export const useLiveStore = create<LiveState>((set, get) => ({
   genCount: 0,
   tokMs: null,
   temperature: 0.7,
+  ablated: [],
+  baselineTopk: null,
+  headStats: null,
 
   toggle(doc) {
     const opening = !get().open
@@ -201,7 +235,7 @@ export const useLiveStore = create<LiveState>((set, get) => ({
   run() {
     const s = get()
     if (s.status !== 'ready' || !s.prompt.trim()) return
-    set({ status: 'running', error: null, tokens: [], topk: [], text: '', genCount: 0 })
+    set({ status: 'running', error: null, tokens: [], topk: [], text: '', genCount: 0, baselineTopk: null, headStats: null })
     getWorker().postMessage({ t: 'run', prompt: s.prompt })
     // 'ran' flips status back; a long prefill keeps the spinner honest
     setTimeout(() => {
@@ -221,8 +255,22 @@ export const useLiveStore = create<LiveState>((set, get) => ({
   },
 
   setAttnLayer(l) {
-    set({ attnLayer: l })
+    set({ attnLayer: l, headStats: null })
     refreshAttn()
+    refreshHeadStats()
+  },
+
+  toggleAblate(layer, head) {
+    const key = `${layer}:${head}`
+    const on = !get().ablated.includes(key)
+    getWorker().postMessage({ t: 'ablate', layer, head, on })
+  },
+
+  clearAblations() {
+    for (const key of get().ablated) {
+      const [layer, head] = key.split(':').map(Number)
+      getWorker().postMessage({ t: 'ablate', layer, head, on: false })
+    }
   },
 
   setAttnHead: (attnHead) => set({ attnHead }),
@@ -239,5 +287,6 @@ export function resetLive(): void {
     open: false, status: 'idle', error: null, progress: null, info: null,
     tokens: [], text: '', topk: [], lens: null, lensStale: false, attn: null,
     attnLayer: 0, attnHead: -1, genCount: 0, tokMs: null,
+    ablated: [], baselineTopk: null, headStats: null,
   })
 }

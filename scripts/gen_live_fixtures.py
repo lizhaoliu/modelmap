@@ -86,6 +86,24 @@ def main() -> None:
     )
     dump("llama-tiny", LlamaForCausalLM(lcfg), lcfg, PROMPT)
 
+    from transformers import Qwen2Config, Qwen2ForCausalLM, Qwen3Config, Qwen3ForCausalLM
+
+    torch.manual_seed(2)
+    q3 = Qwen3Config(
+        hidden_size=32, num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2,
+        intermediate_size=64, vocab_size=128, head_dim=8, rope_theta=10000.0, rms_norm_eps=1e-6,
+        tie_word_embeddings=False, max_position_embeddings=64, attn_implementation="eager",
+    )
+    dump("qwen3-tiny", Qwen3ForCausalLM(q3), q3, PROMPT)
+
+    torch.manual_seed(3)
+    q2 = Qwen2Config(
+        hidden_size=32, num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2,
+        intermediate_size=64, vocab_size=128, rope_theta=10000.0, rms_norm_eps=1e-6,
+        tie_word_embeddings=False, max_position_embeddings=64, attn_implementation="eager",
+    )
+    dump("qwen2-tiny", Qwen2ForCausalLM(q2), q2, PROMPT)
+
     torch.manual_seed(1)
     gcfg = GPT2Config(
         n_embd=32, n_layer=2, n_head=4, n_positions=64, vocab_size=120,

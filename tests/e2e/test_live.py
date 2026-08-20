@@ -18,7 +18,7 @@ with sync_playwright() as p:
     page.locator(".mm-btn-live").click()
     page.wait_for_selector(".mm-livebar")
     note = page.locator(".mm-live-note").inner_text()
-    check("unsupported model explains why", "supports llama-family and gpt2" in note, note)
+    check("unsupported model explains why", "beyond the in-browser cap" in note or "supports llama" in note, note)
     check("panel offers runnable picks", page.locator(".mm-live-picks button").count() >= 2)
 
     # ---- a pick navigates to a live-capable model
@@ -69,6 +69,21 @@ with sync_playwright() as p:
     page.wait_for_timeout(400)
     check("clicking the map's attention block sets the heatmap layer", "layer 0" in page.locator(".mm-live-attn-head label").inner_text())
     page.screenshot(path=f"{SHOTS}/live-1-run.png")
+
+    # ---- M14: head stats + ablation with delta display
+    page.wait_for_function("[...document.querySelectorAll('.mm-live-attn-head select option')].some(o => o.innerText.includes('·'))", timeout=30000)
+    page.locator(".mm-live-attn-head select").select_option("0")
+    page.wait_for_timeout(300)
+    check("per-head stats line up", "looks at:" in (page.locator(".mm-live-headstat").inner_text() if page.locator(".mm-live-headstat").count() else ""))
+    base = page.locator(".mm-live-cand").first.inner_text()
+    page.locator(".mm-live-ablate").click()
+    page.wait_for_selector(".mm-live-ablated-note", timeout=30000)
+    check("silencing a head re-runs and marks the state", "silenced" in page.locator(".mm-live-ablated-note").inner_text().lower())
+    check("probability deltas vs baseline shown", page.locator(".mm-live-delta").count() >= 1)
+    page.locator(".mm-link", has_text="restore").click()
+    page.wait_for_selector(".mm-live-ablated-note", state="detached", timeout=30000)
+    check("restore returns to the baseline distribution", page.locator(".mm-live-cand").first.inner_text() == base)
+    page.screenshot(path=f"{SHOTS}/live-3-ablate.png")
 
     # ---- generation streams tokens and stays coherent-ish
     before = page.locator(".mm-live-toks i").count()

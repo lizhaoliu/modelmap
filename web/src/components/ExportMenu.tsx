@@ -10,6 +10,7 @@ import { useStore } from '../store'
  *  reproduce this exact view (design doc §16). */
 export function ExportMenu() {
   const doc = useStore((s) => s.doc)
+  const fileDoc = useStore((s) => s.fileDoc)
   const selected = useStore((s) => s.selected)
   const setToast = useStore((s) => s.setToast)
   const lens = useCostStore((s) => s.lens)
@@ -100,14 +101,15 @@ export function ExportMenu() {
           <button role="menuitem" onClick={savePng} disabled={busy != null}>PNG <span className="mm-dim">2×, current expansion</span></button>
           <button role="menuitem" onClick={saveSvg} disabled={busy != null}>SVG <span className="mm-dim">vector, editable</span></button>
           <div className="mm-export-grp">data</div>
-          <button role="menuitem" onClick={() => saveServer('md', 'md', 'Markdown summary')} disabled={busy != null}>Markdown summary <span className="mm-dim">config · cost · top weights</span></button>
-          <button role="menuitem" onClick={() => saveServer('csv', 'csv', 'CSV')} disabled={busy != null}>CSV module table <span className="mm-dim">params · shapes · cost per module</span></button>
+          {!fileDoc && <button role="menuitem" onClick={() => saveServer('md', 'md', 'Markdown summary')} disabled={busy != null}>Markdown summary <span className="mm-dim">config · cost · top weights</span></button>}
+          {!fileDoc && <button role="menuitem" onClick={() => saveServer('csv', 'csv', 'CSV')} disabled={busy != null}>CSV module table <span className="mm-dim">params · shapes · cost per module</span></button>}
           <button role="menuitem" onClick={saveJson} disabled={busy != null}>JSON document <span className="mm-dim">what this page renders</span></button>
-          <button role="menuitem" onClick={() => saveServer('dot', 'dot', 'Graphviz DOT')} disabled={busy != null}>Graphviz DOT</button>
-          <div className="mm-export-grp">share</div>
-          <button role="menuitem" onClick={() => copy('Link', viewUrl)}>Copy link <span className="mm-dim">reproduces this exact view</span></button>
-          <button role="menuitem" onClick={() => copy('Embed code', iframe)}>Copy embed code <span className="mm-dim">&lt;iframe&gt; for model cards, blogs, docs</span></button>
-          <button role="menuitem" onClick={() => copy('API URL', location.origin + apiUrl('csv').replace('format=csv', 'format=json'))}>Copy API URL <span className="mm-dim">/api/export · /api/summary · /docs</span></button>
+          {!fileDoc && <button role="menuitem" onClick={() => saveServer('dot', 'dot', 'Graphviz DOT')} disabled={busy != null}>Graphviz DOT</button>}
+          {!fileDoc && <div className="mm-export-grp">share</div>}
+          {!fileDoc && <button role="menuitem" onClick={() => copy('Link', viewUrl)}>Copy link <span className="mm-dim">reproduces this exact view</span></button>}
+          {!fileDoc && <button role="menuitem" onClick={() => copy('Embed code', iframe)}>Copy embed code <span className="mm-dim">&lt;iframe&gt; for model cards, blogs, docs</span></button>}
+          {!fileDoc && <button role="menuitem" onClick={() => copy('API URL', location.origin + apiUrl('csv').replace('format=csv', 'format=json'))}>Copy API URL <span className="mm-dim">/api/export · /api/summary · /docs</span></button>}
+          {fileDoc && <div className="mm-pop-note">loaded from a file — server exports and share links need a Hub-extractable model</div>}
           {busy && <div className="mm-pop-note">working…</div>}
           {!busy && <div className="mm-pop-note">CLI: <code>modelmap dump {doc.model_id} -f md</code> · MCP: <code>modelmap mcp --remote {location.origin}</code> · <a className="mm-link" href="https://github.com/lizhaoliu/modelmap/blob/main/docs/API.md" target="_blank" rel="noreferrer">API docs</a></div>}
         </div>

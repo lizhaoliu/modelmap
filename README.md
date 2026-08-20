@@ -79,15 +79,30 @@ docker compose up --build
   `/api/compare`, OpenAPI at `/docs`), a Python API, a CLI (`dump · cost · plan · diff`) and an
   **MCP server** so a coding agent can ask "will Qwen3-32B fit on 2×A100 at 32k?" — see [docs/API.md](docs/API.md).
   A Chrome extension / userscript adds a *view in modelmap* button to Hugging Face pages ([extensions/](extensions/)).
-- **Serving planner** — `fit?` in the top bar: pick GPUs × memory, tensor / pipeline parallel degree and
-  headroom; see per-stage weights / KV / activation bytes, which layers land where, the activation bytes crossing
-  each pipeline boundary, whether it fits, and the KV-limited maximum context at the chosen batch.
+- **Serving + fine-tuning planner** — `fit?` in the top bar has two tabs. *Serve*: GPUs × memory, TP/PP
+  split, per-stage weights / KV / activation bytes, fits?, KV-limited max context — plus **roofline speed
+  estimates** per GPU preset (prefill tok/s compute-bound, decode tok/s bandwidth-bound, MoE streams active
+  experts only). *Fine-tune*: full / **LoRA / QLoRA** with rank and target choices, AdamW vs 8-bit, ZeRO-2/3
+  sharding, gradient-checkpointing and flash-attention toggles → per-GPU weights / grads / optimizer /
+  activations, largest micro-batch, training tok/s. Same numbers from `modelmap train`, `modelmap plan --gpu`,
+  `/api/train`, and the MCP `plan_finetune` tool (Python + TS twins pinned to the same fixtures).
 - **Quantized checkpoints** — `owner/name:Q4_K_M` opens a GGUF variant (a picker lists the repo's quants): the
   config is rebuilt from the GGUF header via range reads, the module tree and trace are real, and every module
   shows its actual quant type and bits per weight, so the Cost lens reports true on-disk bytes. FP8 / AWQ / GPTQ /
   bitsandbytes repos report their quantized dtypes too.
 - **Local checkpoints** — `modelmap ./ckpt` (or `local:/path` in the local UI): your own fine-tunes, merges and
   GGUFs, never leaving your machine. Compare one against its base to see what changed.
+- **Custom-code repos** (Kimi-K3 and friends) — the hosted server refuses `trust_remote_code` by design, but you
+  can run `modelmap dump <id> --trust-remote-code` on your machine and **drop the `.graph.json` anywhere on the
+  site**: it renders fully client-side (flow, lenses, exports) and nothing is uploaded. `modelmap serve
+  --trust-remote-code` opts your own server in.
+- **The architecture zoo** — [`/models`](https://modelmap.cc/models): every mapped model as a filterable table of
+  derived structural tags (`moe 8/128`, `mla`, `gqa 4×`, `vlm`, `ctx 1M`…); [`/arch/qwen`](https://modelmap.cc/arch/qwen)
+  and seven more family pages whose lineage arrows are *live structural diffs* — the Qwen2→Qwen3 q/k-norm story
+  told by the data, not by prose. Also `/api/models` and `/api/families`.
+- **Live interpretability** — in ⚡ live mode, **silence any attention head** and watch the next-token
+  probabilities shift (▲/▼ deltas vs baseline; restore is bit-exact), per-head pattern tags (`prev-token`,
+  `sink`, `broad`), and qwen2/qwen3 checkpoints join llama/gpt2 in the in-browser engine.
 - **Any public repo.** Text LLMs (dense and MoE), encoder-decoders (T5/BART), speech (Whisper),
   BERT, ViT, vision-language and audio-language (the encoder tower and
   its projector are traced too — on the meta device when possible, otherwise via a depth-1 CPU
@@ -110,6 +125,10 @@ docker compose up --build
 - [x] M8 — GGUF / quantized variants, local checkpoints, serving planner, interleaved repeat stacks
 - [x] M9 — alive by default: landing hero replay, first-visit autoplay, drifting edges, camera follow
 - [x] M10 — ⚡ live mode: real in-browser inference (llama + gpt2), attention heatmaps, logit lens, streamed generation
+- [x] M11 — coverage: drag-and-drop graph files for trust_remote_code models, `serve --trust-remote-code`
+- [x] M12 — fine-tuning planner (LoRA/QLoRA/full, ZeRO) + roofline throughput estimates per GPU
+- [x] M13 — architecture zoo: /models catalog with structural tags, /arch family pages with live lineage diffs
+- [x] M14 — live interpretability: head ablation with Δ display, head pattern tags, qwen2/qwen3 engines
 - [x] Deployed on Google Cloud Run (free tier) at https://modelmap.cc; see DEPLOY.md
 
 ## Development
@@ -124,7 +143,8 @@ uv run python tests/e2e/test_explore.py   # browser acceptance suites (need a ru
 uv run python tests/e2e/test_flow.py      # on :7860, playwright, and a Chromium build)
 uv run python tests/e2e/test_m7.py        # export / embed / planner / GGUF / local
 uv run python tests/e2e/test_m9.py        # hero replay, autoplay, camera follow
-uv run python tests/e2e/test_live.py      # ⚡ live: downloads TinyLLama-v0 and runs it
+uv run python tests/e2e/test_live.py      # ⚡ live: downloads TinyLLama-v0 and runs it (+ head ablation)
+uv run python tests/e2e/test_zoo.py       # catalog, family pages, dropped graph files
 ```
 
 Layout: `src/modelmap/` (extractor, server, CLI) · `web/` (React + React Flow + elkjs SPA,

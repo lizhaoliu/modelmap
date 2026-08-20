@@ -33,6 +33,9 @@ export function LiveBar() {
   const lens = useLiveStore((s) => s.lens)
   const tokMs = useLiveStore((s) => s.tokMs)
   const temperature = useLiveStore((s) => s.temperature)
+  const ablated = useLiveStore((s) => s.ablated)
+  const baselineTopk = useLiveStore((s) => s.baselineTopk)
+  const clearAblations = useLiveStore((s) => s.clearAblations)
   const load = useLiveStore((s) => s.load)
   const run = useLiveStore((s) => s.run)
   const generate = useLiveStore((s) => s.generate)
@@ -152,14 +155,30 @@ export function LiveBar() {
                   <div ref={tokensEndRef} />
                 </div>
                 <div className="mm-live-topk" aria-label="Next-token probabilities">
-                  <span className="mm-live-lbl">next token</span>
-                  {topk.slice(0, 5).map((e) => (
-                    <span key={e.id} className="mm-live-cand" title={`p = ${(e.p * 100).toFixed(2)}%`}>
-                      <i style={{ width: `${Math.max(2, e.p * 100)}%` }} />
-                      <b>{e.tok}</b>
-                      <em>{(e.p * 100).toFixed(e.p >= 0.1 ? 0 : 1)}%</em>
-                    </span>
-                  ))}
+                  <span className="mm-live-lbl">
+                    next token
+                    {ablated.length > 0 && (
+                      <>
+                        {' '}· <span className="mm-live-ablated-note">{ablated.length} head{ablated.length > 1 ? 's' : ''} silenced</span>{' '}
+                        <button className="mm-link" onClick={clearAblations}>restore</button>
+                      </>
+                    )}
+                  </span>
+                  {topk.slice(0, 5).map((e) => {
+                    const was = ablated.length ? baselineTopk?.find((b) => b.id === e.id)?.p : undefined
+                    return (
+                      <span key={e.id} className="mm-live-cand" title={`p = ${(e.p * 100).toFixed(2)}%${was != null ? ` (was ${(was * 100).toFixed(2)}%)` : ''}`}>
+                        <i style={{ width: `${Math.max(2, e.p * 100)}%` }} />
+                        <b>{e.tok}</b>
+                        {was != null && Math.abs(e.p - was) > 0.002 && (
+                          <em className={`mm-live-delta ${e.p > was ? 'is-up' : 'is-down'}`}>
+                            {e.p > was ? '▲' : '▼'}{Math.abs((e.p - was) * 100).toFixed(1)}
+                          </em>
+                        )}
+                        <em>{(e.p * 100).toFixed(e.p >= 0.1 ? 0 : 1)}%</em>
+                      </span>
+                    )
+                  })}
                 </div>
                 {lens && <LensStrip />}
               </div>
@@ -210,6 +229,10 @@ function AttnHeatmap() {
   const head = useLiveStore((s) => s.attnHead)
   const setLayer = useLiveStore((s) => s.setAttnLayer)
   const setHead = useLiveStore((s) => s.setAttnHead)
+  const stats = useLiveStore((s) => s.headStats)
+  const ablated = useLiveStore((s) => s.ablated)
+  const toggleAblate = useLiveStore((s) => s.toggleAblate)
+  const status = useLiveStore((s) => s.status)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [hover, setHover] = useState<string | null>(null)
 
@@ -274,10 +297,27 @@ function AttnHeatmap() {
         <select value={head} onChange={(e) => setHead(Number(e.target.value))} aria-label="Attention head">
           <option value={-1}>mean of {info.heads} heads</option>
           {Array.from({ length: info.heads }, (_, h) => (
-            <option key={h} value={h}>head {h}</option>
+            <option key={h} value={h}>
+              head {h}{stats?.[h]?.tag ? ` · ${stats[h].tag}` : ''}{ablated.includes(`${layer}:${h}`) ? ' · silenced' : ''}
+            </option>
           ))}
         </select>
+        {head >= 0 && (
+          <button
+            className={`mm-btn mm-live-ablate ${ablated.includes(`${layer}:${head}`) ? 'is-on' : ''}`}
+            disabled={status !== 'ready'}
+            onClick={() => toggleAblate(layer, head)}
+            title="Zero this head's output and re-run — the next-token bars show what it was contributing"
+          >
+            {ablated.includes(`${layer}:${head}`) ? 'unsilence' : 'silence head'}
+          </button>
+        )}
       </div>
+      {stats && head >= 0 && stats[head] && (
+        <span className="mm-live-headstat">
+          looks at: prev {Math.round(stats[head].prev * 100)}% · first {Math.round(stats[head].first * 100)}% · self {Math.round(stats[head].self * 100)}% · spread {Math.round(stats[head].entropy * 100)}%
+        </span>
+      )}
       <canvas ref={canvasRef} onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
       <span className="mm-live-hover">{hover ?? 'rows attend to columns · hover for values'}</span>
     </div>

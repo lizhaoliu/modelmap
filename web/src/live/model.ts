@@ -34,6 +34,8 @@ export interface LlamaConfig {
 
 export interface ModelInfo {
   arch: 'llama' | 'gpt2'
+  /** the config's model_type (llama, qwen2, qwen3, gpt2…) */
+  modelType: string
   layers: number
   heads: number
   kvHeads: number
@@ -48,6 +50,9 @@ interface Layer {
   // llama
   wIn?: Float32Array
   wPost?: Float32Array
+  /** qwen3: per-head RMSNorm on q and k (length head_dim) */
+  qNorm?: Float32Array
+  kNorm?: Float32Array
   wq?: Float32Array
   wk?: Float32Array
   wv?: Float32Array
@@ -166,6 +171,8 @@ export class LiveModel {
   /** hidden state of the LAST position after each layer (for the logit lens) */
   lensHidden: Float32Array[] = []
   seq = 0
+  /** "layer:head" pairs whose attention output is zeroed (design doc §24) */
+  ablated = new Set<string>()
 
   constructor(cfg: LlamaConfig, buf: ArrayBuffer) {
     const file = parseSafetensors(buf)
@@ -212,6 +219,8 @@ export class LiveModel {
           bq: pick(`${p}.self_attn.q_proj.bias`),
           bk: pick(`${p}.self_attn.k_proj.bias`),
           bv: pick(`${p}.self_attn.v_proj.bias`),
+          qNorm: pick(`${p}.self_attn.q_norm.weight`),
+          kNorm: pick(`${p}.self_attn.k_norm.weight`),
           wGate: need(`${p}.mlp.gate_proj.weight`),
           wUp: need(`${p}.mlp.up_proj.weight`),
           wDown: need(`${p}.mlp.down_proj.weight`),
@@ -255,7 +264,7 @@ export class LiveModel {
       }
     }
     this.info = {
-      arch, layers, heads,
+      arch, modelType: cfg.model_type, layers, heads,
       kvHeads: arch === 'gpt2' ? heads : kvHeads,
       hidden, headDim, vocab: cfg.vocab_size, maxSeq, params,
     }
@@ -319,6 +328,9 @@ export class LiveModel {
         rmsnorm(x, S, H, l.wIn!, this.eps, h1)
         matmul(h1, S, H, l.wq!, nh * dh, q, l.bq)
         matmul(h1, S, H, l.wk!, nkv * dh, kv, l.bk)
+        // qwen3-style per-head q/k RMSNorm, before rope
+        if (l.qNorm) for (let s2 = 0; s2 < S; s2++) rmsnorm(q.subarray(s2 * nh * dh, (s2 + 1) * nh * dh), nh, dh, l.qNorm, this.eps, q.subarray(s2 * nh * dh, (s2 + 1) * nh * dh))
+        if (l.kNorm) for (let s2 = 0; s2 < S; s2++) rmsnorm(kv.subarray(s2 * nkv * dh, (s2 + 1) * nkv * dh), nkv, dh, l.kNorm, this.eps, kv.subarray(s2 * nkv * dh, (s2 + 1) * nkv * dh))
         this.rope(q, S, nh, past)
         this.rope(kv, S, nkv, past)
         for (let s = 0; s < S; s++) l.kCache.set(kv.subarray(s * nkv * dh, (s + 1) * nkv * dh), (past + s) * nkv * dh)
@@ -350,10 +362,12 @@ export class LiveModel {
           row.set(scores.subarray(0, p + 1), h * (p + 1))
           const ao = (s * nh + h) * dh
           attnOut.fill(0, ao, ao + dh)
-          for (let j = 0; j <= p; j++) {
-            const vo = (j * nkv + kvh) * dh
-            const w = scores[j]
-            for (let d = 0; d < dh; d++) attnOut[ao + d] += w * l.vCache[vo + d]
+          if (!this.ablated.has(`${li}:${h}`)) {
+            for (let j = 0; j <= p; j++) {
+              const vo = (j * nkv + kvh) * dh
+              const w = scores[j]
+              for (let d = 0; d < dh; d++) attnOut[ao + d] += w * l.vCache[vo + d]
+            }
           }
         }
         l.attnRows.push(row)
@@ -428,6 +442,49 @@ export class LiveModel {
       }
     }
     return { heads: nh, seq: T, data }
+  }
+
+  /** attention-pattern statistics per head of one layer, over the current
+   *  sequence: how much each head looks at the previous token, position 0
+   *  (the "attention sink"), itself, and how spread out it is. */
+  headStats(layer: number): { prev: number; first: number; self: number; entropy: number; tag: string }[] {
+    const l = this.layers[layer]
+    const nh = this.info.heads
+    const out: { prev: number; first: number; self: number; entropy: number; tag: string }[] = []
+    for (let h = 0; h < nh; h++) {
+      let prev = 0
+      let first = 0
+      let selfW = 0
+      let ent = 0
+      let n = 0
+      for (let p = 1; p < l.attnRows.length; p++) {
+        const row = l.attnRows[p]
+        const width = row.length / nh
+        const o = h * width
+        prev += row[o + p - 1]
+        first += row[o]
+        selfW += row[o + p]
+        let e = 0
+        for (let j = 0; j <= p; j++) {
+          const v = row[o + j]
+          if (v > 1e-9) e -= v * Math.log(v)
+        }
+        ent += e / Math.log(p + 1) // normalized: 1 = uniform
+        n++
+      }
+      if (!n) {
+        out.push({ prev: 0, first: 0, self: 0, entropy: 0, tag: '' })
+        continue
+      }
+      prev /= n
+      first /= n
+      selfW /= n
+      ent /= n
+      const tag =
+        prev > 0.4 ? 'prev-token' : first > 0.55 ? 'sink' : selfW > 0.4 ? 'self' : ent > 0.85 ? 'broad' : ''
+      out.push({ prev, first, self: selfW, entropy: ent, tag })
+    }
+    return out
   }
 }
 

@@ -78,7 +78,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(200)
     rows = page.locator(".mm-plan-table tbody tr").count()
     check("planner: 2 GPUs → 2 pipeline stages by default", rows == 2, str(rows))
-    summary = page.locator(".mm-plan-summary").inner_text()
+    summary = page.locator(".mm-plan-summary").first.inner_text()
     check("planner reports max context and boundary traffic", "max context" in summary and "stage boundary" in summary, summary)
     check("planner state in URL", "gpus=2" in page.url and "gmem=24" in page.url, page.url)
     page.screenshot(path=f"{SHOTS}/m7-2-planner.png")

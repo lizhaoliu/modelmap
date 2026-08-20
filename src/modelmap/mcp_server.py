@@ -21,7 +21,10 @@ import os
 from typing import Any
 
 from modelmap import __version__, cache
-from modelmap.analytics import Assumptions, PlanRequest, WHATIF_DTYPES, module_rows, plan_serving, summarize
+from modelmap.analytics import (
+    Assumptions, GPU_SPECS, PlanRequest, TrainRequest, WHATIF_DTYPES,
+    estimate_throughput, module_rows, plan_serving, plan_training, summarize,
+)
 from modelmap.compare import align, diff_markdown
 from modelmap.export import to_markdown
 from modelmap.ids import is_local
@@ -101,7 +104,7 @@ def estimate_cost(model_id: str, T: int = 4096, B: int = 1, dtype: str = "bf16")
 
 def plan_serving_tool(
     model_id: str, gpus: int = 1, gpu_memory_gb: float = 80, tp: int = 1, pp: int = 1,
-    T: int = 4096, B: int = 1, dtype: str = "bf16", headroom: float = 0.1,
+    T: int = 4096, B: int = 1, dtype: str = "bf16", headroom: float = 0.1, gpu: str = "",
 ) -> dict:
     """Will this model fit on N GPUs? Tensor-/pipeline-parallel placement
     estimate: per-GPU weight, KV-cache and activation bytes for a tp × pp
@@ -113,7 +116,35 @@ def plan_serving_tool(
         raise ValueError(f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
     doc = get_doc(model_id)
     req = PlanRequest(gpus=gpus, gpu_memory_gb=gpu_memory_gb, tp=tp, pp=pp, T=T, B=B, dtype=dtype, headroom=headroom)
-    return plan_serving(doc, req).to_dict()
+    out = plan_serving(doc, req).to_dict()
+    if gpu:
+        t = estimate_throughput(doc, gpu, tp=tp, T=T, B=B, dtype=dtype)
+        if t is None:
+            raise ValueError(f"unknown GPU preset '{gpu}'; one of: {', '.join(GPU_SPECS)}")
+        out["throughput"] = t.to_dict()
+    return out
+
+
+def plan_finetune(
+    model_id: str, method: str = "lora", lora_rank: int = 16, lora_targets: str = "attn-mlp",
+    optimizer: str = "adamw", gpus: int = 1, gpu_memory_gb: float = 80, sharding: str = "none",
+    T: int = 2048, B: int = 1, grad_checkpoint: bool = True, flash_attention: bool = True,
+    headroom: float = 0.1, gpu: str = "",
+) -> dict:
+    """Will fine-tuning fit? Memory estimate for full / LoRA / QLoRA training:
+    trainable parameters, per-GPU weight / gradient / optimizer / activation
+    bytes under the chosen sharding (none, zero2, zero3 = FSDP), whether it
+    fits under (1 − headroom) × GPU memory, and the largest micro-batch per
+    GPU at sequence length T. Optimizer "adamw" keeps fp32 master + m + v
+    (12 B/trainable); "adamw8bit" halves that. Pass a GPU preset name (e.g.
+    "H100 80GB") for a training tokens/sec estimate."""
+    doc = get_doc(model_id)
+    req = TrainRequest(
+        method=method, optimizer=optimizer, lora_rank=lora_rank, lora_targets=lora_targets,
+        gpus=gpus, gpu_memory_gb=gpu_memory_gb, sharding=sharding, T=T, B=B,
+        grad_checkpoint=grad_checkpoint, flash_attention=flash_attention, headroom=headroom, gpu=gpu or None,
+    )
+    return plan_training(doc, req).to_dict()
 
 
 def compare_models(a: str, b: str, format: str = "markdown") -> str | dict:
@@ -166,6 +197,7 @@ TOOLS = [
     ("describe_model", describe_model),
     ("estimate_cost", estimate_cost),
     ("plan_serving", plan_serving_tool),
+    ("plan_finetune", plan_finetune),
     ("compare_models", compare_models),
     ("list_modules", list_modules),
     ("search_models", search_models),

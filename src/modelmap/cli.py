@@ -5,7 +5,8 @@
   modelmap serve           run the server (--host --port --open --warm --no-local)
   modelmap dump <id>       extract a model to JSON / CSV / Markdown / DOT
   modelmap cost <id>       headline numbers + compute / memory / KV estimates
-  modelmap plan <id>       will it fit? TP × PP placement across N GPUs
+  modelmap plan <id>       will it fit? TP × PP placement across N GPUs (+ speed with --gpu)
+  modelmap train <id>      fine-tuning memory: full / LoRA / QLoRA, ZeRO, checkpointing
   modelmap diff <A> <B>    module-by-module structural diff
   modelmap warm [ids…]     pre-extract the gallery (or given ids) into the cache
   modelmap mcp             MCP server (stdio) for coding agents
@@ -82,8 +83,26 @@ def main(argv: list[str] | None = None) -> None:
     pl.add_argument("--tp", type=int, default=1, help="tensor-parallel degree")
     pl.add_argument("--pp", type=int, default=1, help="pipeline-parallel degree")
     pl.add_argument("--headroom", type=float, default=0.1, help="fraction of memory kept free (default 0.1)")
+    pl.add_argument("--gpu", help='GPU preset for a speed estimate, e.g. "A100 80GB" (see modelmap plan --list-gpus)')
+    pl.add_argument("--list-gpus", action="store_true", help="print the GPU presets and exit")
     pl.add_argument("--json", action="store_true")
     _add_assumptions(pl)
+
+    tr = sub.add_parser("train", help="fine-tuning memory: full / LoRA / QLoRA, optimizer, ZeRO")
+    tr.add_argument("model_id")
+    tr.add_argument("--method", default="lora", choices=("full", "lora", "qlora"))
+    tr.add_argument("--optimizer", default="adamw", choices=("adamw", "adamw8bit"))
+    tr.add_argument("--rank", type=int, default=16, help="LoRA rank (default 16)")
+    tr.add_argument("--targets", default="attn-mlp", choices=("attention", "attn-mlp", "all-linear"))
+    tr.add_argument("--gpus", type=int, default=1)
+    tr.add_argument("--gpu-memory", type=float, default=80, help="GiB per GPU (default 80)")
+    tr.add_argument("--sharding", default="none", choices=("none", "zero2", "zero3"))
+    tr.add_argument("--no-checkpointing", action="store_true", help="keep every activation (no gradient checkpointing)")
+    tr.add_argument("--no-flash", action="store_true", help="assume no flash attention (adds T² score memory)")
+    tr.add_argument("--headroom", type=float, default=0.1)
+    tr.add_argument("--gpu", help='GPU preset for a speed estimate, e.g. "H100 80GB"')
+    tr.add_argument("--json", action="store_true")
+    _add_assumptions(tr)
 
     df = sub.add_parser("diff", help="structural diff of two models")
     df.add_argument("a")
@@ -100,6 +119,10 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--warm", action="store_true", help="pre-extract the gallery in the background")
     s.add_argument("--no-local", action="store_true", help="refuse local:/path ids even on loopback")
     s.add_argument("--allow-local", action="store_true", help="serve local:/path ids on a non-loopback host (trusted networks only)")
+    s.add_argument(
+        "--trust-remote-code", action="store_true",
+        help="let extraction run repos' own modeling Python (arbitrary code — your own machine only)",
+    )
 
     w = sub.add_parser("warm", help="pre-extract models into the cache")
     w.add_argument("model_ids", nargs="*", help="defaults to the landing gallery")
@@ -124,6 +147,7 @@ def main(argv: list[str] | None = None) -> None:
             "serve", os.environ.get("MODELMAP_HOST", "127.0.0.1"),
             int(os.environ.get("MODELMAP_PORT") or os.environ.get("PORT") or "7860"), True, False, False, False,
         )
+        args.trust_remote_code = False
         args.open_path = open_path
     else:
         args.open_path = None
@@ -134,15 +158,19 @@ def main(argv: list[str] | None = None) -> None:
         _cost(args)
     elif args.cmd == "plan":
         _plan(args)
+    elif args.cmd == "train":
+        _train(args)
     elif args.cmd == "diff":
         _diff(args)
     elif args.cmd == "warm":
         from modelmap.gallery import CLASSIC_IDS, trending_ids
         from modelmap.server import warm
+        from modelmap.zoo import ZOO_IDS
 
-        # default: the classics plus whatever is trending right now (so a
-        # container image bakes today's trending models in, too)
-        warm(args.model_ids or (CLASSIC_IDS + trending_ids()))
+        # default: the classics, the curated zoo families, and whatever is
+        # trending right now (so a container image bakes them all in)
+        ids = args.model_ids or list(dict.fromkeys(CLASSIC_IDS + ZOO_IDS + trending_ids()))
+        warm(ids)
     elif args.cmd == "mcp":
         from modelmap.mcp_server import run
 
@@ -155,6 +183,12 @@ def main(argv: list[str] | None = None) -> None:
         loopback = args.host in ("127.0.0.1", "localhost", "::1")
         if (loopback and not args.no_local) or args.allow_local:
             os.environ["MODELMAP_ALLOW_LOCAL"] = "1"
+        if getattr(args, "trust_remote_code", False):
+            os.environ["MODELMAP_TRUST_REMOTE_CODE"] = "1"
+            print(
+                "WARNING: --trust-remote-code executes repos' own Python during extraction. "
+                "Only extract repos you trust.", file=sys.stderr,
+            )
         if args.open:
             target = f"http://{args.host}:{args.port}/"
             if args.open_path:
@@ -255,8 +289,12 @@ def _cost(args) -> None:
 
 
 def _plan(args) -> None:
-    from modelmap.analytics import PlanRequest, fmt_bytes, plan_serving
+    from modelmap.analytics import GPU_SPECS, PlanRequest, estimate_throughput, fmt_bytes, plan_serving
 
+    if args.list_gpus:
+        for name, spec in GPU_SPECS.items():
+            print(f"{name:<16} {spec['tflops']:>6.0f} TFLOPs bf16   {spec['bw']:>5.0f} GB/s")
+        return
     doc = _load(args.model_id, token=args.token, refresh=args.refresh)
     req = PlanRequest(gpus=args.gpus, gpu_memory_gb=args.gpu_memory, tp=args.tp, pp=args.pp, T=args.seq, B=args.batch, dtype=args.dtype, headroom=args.headroom)
     p = plan_serving(doc, req)
@@ -275,6 +313,45 @@ def _plan(args) -> None:
             f"act {fmt_bytes(st.act_bytes_per_gpu)}/gpu  total {fmt_bytes(st.total_bytes_per_gpu)}  {'ok' if st.fits else 'OVER'}"
             + (f"  → next stage {fmt_bytes(st.boundary_bytes_out)}/forward" if st.boundary_bytes_out else "")
         )
+    for n in p.notes:
+        print(f"  note: {n}")
+    if args.gpu:
+        t = estimate_throughput(doc, args.gpu, tp=r.tp, T=r.T, B=r.B, dtype=r.dtype)
+        if t is None:
+            print(f"  unknown GPU preset '{args.gpu}' — see modelmap plan --list-gpus")
+        else:
+            print(
+                f"  speed on {t.gpu} × {r.tp}: prefill ≈ {t.prefill_tok_per_sec:,.0f} tok/s · "
+                f"decode ≈ {t.decode_tok_per_sec_b1:,.0f} tok/s at B=1"
+                + (f" · ≈ {t.decode_tok_per_sec_at_b:,.0f} tok/s total at B={t.batch}" if t.batch > 1 else "")
+            )
+            for n in t.notes:
+                print(f"  note: {n}")
+
+
+def _train(args) -> None:
+    from modelmap.analytics import TrainRequest, fmt_bytes, fmt_params, plan_training
+
+    doc = _load(args.model_id, token=args.token, refresh=args.refresh)
+    req = TrainRequest(
+        method=args.method, optimizer=args.optimizer, lora_rank=args.rank, lora_targets=args.targets,
+        gpus=args.gpus, gpu_memory_gb=args.gpu_memory, sharding=args.sharding, T=args.seq, B=args.batch,
+        grad_checkpoint=not args.no_checkpointing, flash_attention=not args.no_flash,
+        headroom=args.headroom, gpu=args.gpu,
+    )
+    p = plan_training(doc, req)
+    if args.json:
+        print(json.dumps(p.to_dict(), indent=2))
+        return
+    r = p.request
+    label = r.method + (f" r={r.lora_rank} ({r.lora_targets})" if r.method != "full" else "")
+    print(f"{doc['model_id']}  ·  {label}  ·  {r.gpus}× {r.gpu_memory_gb:g} GB  ·  {r.sharding}  ·  T={r.T:,} B={r.B}/gpu  ·  {r.optimizer}")
+    print(f"  {'FITS' if p.fits else 'DOES NOT FIT'}  ·  trainable {fmt_params(p.trainable_params)} of {fmt_params(p.total_params)}  ·  capacity {fmt_bytes(p.per_gpu_capacity_bytes)}/gpu")
+    print(f"  per GPU:  weights {fmt_bytes(p.weight_bytes_per_gpu)}  ·  grads {fmt_bytes(p.grad_bytes_per_gpu)}  ·  optimizer {fmt_bytes(p.optimizer_bytes_per_gpu)}  ·  activations {fmt_bytes(p.activation_bytes_per_gpu)}  ·  total {fmt_bytes(p.total_bytes_per_gpu)}")
+    if p.max_microbatch:
+        print(f"  largest micro-batch at T={r.T:,}: {p.max_microbatch}/gpu")
+    if p.train_tokens_per_sec:
+        print(f"  speed ≈ {p.train_tokens_per_sec:,.0f} training tok/s across {r.gpus} GPUs")
     for n in p.notes:
         print(f"  note: {n}")
 

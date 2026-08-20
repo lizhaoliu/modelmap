@@ -25,7 +25,9 @@ Gated / private repos: send the `X-HF-Token: hf_…` header (such responses are 
 | `/api/graph/{id}[?revision=main]` | the graph document (gzip, ETag / 304) |
 | `/api/summary/{id}[?T=4096&B=1&dtype=bf16]` | headline numbers: params, active params, stacks, config essentials, checkpoint format / variant, and `cost` (MACs per token and forward, weight / activation / KV bytes at T, B, dtype) |
 | `/api/export/{id}?format=csv\|md\|json\|dot[&T&B&dtype&leaves_only&depth&download=1]` | the model rendered for other tools (text) |
-| `/api/plan/{id}?gpus=2&gpu_memory_gb=24&tp=1&pp=2[&T&B&dtype&headroom=0.1]` | serving placement: per-stage / per-GPU weights, KV, activation bytes, fits?, layer ranges, boundary traffic, KV-limited max context |
+| `/api/plan/{id}?gpus=2&gpu_memory_gb=24&tp=1&pp=2[&T&B&dtype&headroom&gpu=A100+80GB]` | serving placement: per-stage / per-GPU weights, KV, activation bytes, fits?, layer ranges, boundary traffic, KV-limited max context; a `gpu` preset name adds a roofline `throughput` block (prefill / decode tok/s) |
+| `/api/train/{id}?method=lora\|qlora\|full[&lora_rank&lora_targets&optimizer&gpus&gpu_memory_gb&sharding=none\|zero2\|zero3&T&B&grad_checkpoint&flash_attention&gpu]` | fine-tuning memory: trainable params, per-GPU weights / grads / optimizer / activations, fits?, largest micro-batch, optional training tok/s |
+| `/api/models` · `/api/families` | the architecture zoo: structural facts + derived tags per cached graph; curated family lineages |
 | `/api/compare?a={id}&b={id}[&format=json\|md&changed_only=1]` | module-by-module diff (aligned by path, then role) + config diff |
 | `/api/gallery` · `/api/search?q=` · `/api/health` | landing data, Hub search, liveness |
 
@@ -49,6 +51,8 @@ modelmap dump Qwen/Qwen3-8B -f md -o -                                   # json 
 modelmap dump Qwen/Qwen3-8B-GGUF:Q8_0 -f csv --leaves-only
 modelmap cost Qwen/Qwen3-235B-A22B -T 32768 -B 4 --dtype f8              # headline numbers + cost table (--json)
 modelmap plan Qwen/Qwen3-8B --gpus 2 --gpu-memory 24 --pp 2 -T 32768     # fits? stages, max context (--json)
+modelmap plan Qwen/Qwen3-8B --gpu "A100 80GB"                            # + prefill/decode tok/s (--list-gpus for presets)
+modelmap train Qwen/Qwen3-8B --method qlora --rank 16 --gpus 1 --gpu-memory 24   # fine-tuning memory + largest micro-batch
 modelmap diff Qwen/Qwen2.5-7B Qwen/Qwen3-8B                              # markdown diff (-f json)
 modelmap serve --host 0.0.0.0 --no-local                                 # the hosted configuration
 ```
@@ -83,7 +87,8 @@ Cursor / Windsurf / others: command `uvx`, args `["--index", "https://download.p
 "modelmap[mcp]@git+https://github.com/lizhaoliu/modelmap", "modelmap", "mcp", "--remote", "https://modelmap.cc"]`. Transport: stdio.
 Once published to PyPI the `--from` becomes just `modelmap[mcp]`.
 
-Tools: `describe_model`, `estimate_cost`, `plan_serving`, `compare_models`, `list_modules`, `search_models`,
+Tools: `describe_model`, `estimate_cost`, `plan_serving` (pass `gpu: "A100 80GB"` for tok/s estimates),
+`plan_finetune` (full/LoRA/QLoRA memory + largest micro-batch), `compare_models`, `list_modules`, `search_models`,
 `export_markdown` — each takes model ids in the grammar above and the same `T / B / dtype` assumptions, and answers
 with the same numbers the UI shows. Ask your agent *"will Qwen3-32B fit on 2×A100 80GB at 32k context?"* and it has real numbers.
 

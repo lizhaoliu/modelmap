@@ -13,7 +13,9 @@ interface GenMsg { t: 'gen'; maxNew: number; temperature: number; topK: number }
 interface AttnMsg { t: 'attn'; layer: number }
 interface LensMsg { t: 'lens' }
 interface StopMsg { t: 'stop' }
-export type InMsg = LoadMsg | RunMsg | GenMsg | AttnMsg | LensMsg | StopMsg
+interface AblateMsg { t: 'ablate'; layer: number; head: number; on: boolean }
+interface HeadStatsMsg { t: 'headstats'; layer: number }
+export type InMsg = LoadMsg | RunMsg | GenMsg | AttnMsg | LensMsg | StopMsg | AblateMsg | HeadStatsMsg
 
 export interface TopEntry { id: number; tok: string; p: number }
 
@@ -159,6 +161,23 @@ self.onmessage = async (ev: MessageEvent<InMsg>) => {
       if (!model) throw new Error('model is not loaded')
       const rows = model.logitLens().map((logits, layer) => ({ layer, top: topkProbs(logits, 5) }))
       post({ t: 'lens', rows })
+    } else if (msg.t === 'headstats') {
+      if (!model) throw new Error('model is not loaded')
+      post({ t: 'headstats', layer: msg.layer, stats: model.headStats(msg.layer) })
+    } else if (msg.t === 'ablate') {
+      if (!model || !ids.length) throw new Error('run a prompt first')
+      const key = `${msg.layer}:${msg.head}`
+      if (msg.on) model.ablated.add(key)
+      else model.ablated.delete(key)
+      // re-run the whole sequence under the new ablation set
+      model.reset()
+      lastLogits = model.forward(ids)
+      post({
+        t: 'ablated',
+        ablated: [...model.ablated],
+        topk: topkProbs(lastLogits, 8),
+        seq: model.seq,
+      })
     }
   } catch (e) {
     post({ t: 'error', message: e instanceof Error ? e.message : String(e) })

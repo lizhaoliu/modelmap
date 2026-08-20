@@ -74,6 +74,17 @@ export function Landing() {
           <span className="mm-cmp-entry-hint">this server runs on your machine, so your own fine-tunes and GGUFs work too</span>
         </form>
       )}
+      <section className="mm-cmp-entry" aria-label="Browse the zoo">
+        <span className="mm-cmp-entry-label">families</span>
+        {['qwen', 'llama', 'deepseek', 'gpt', 'mistral', 'bert', 't5', 'whisper'].map((k) => (
+          <button key={k} className="mm-zoo-tagbtn" onClick={() => { history.pushState({}, '', `/arch/${k}`); window.dispatchEvent(new Event('mm:navigate')) }}>
+            {k}
+          </button>
+        ))}
+        <button className="mm-link" onClick={() => { history.pushState({}, '', '/models'); window.dispatchEvent(new Event('mm:navigate')) }}>
+          all mapped models →
+        </button>
+      </section>
       <section className="mm-cmp-entry" aria-label="Compare two models">
         <span className="mm-cmp-entry-label">compare</span>
         <ModelSearch placeholder={cmpA || 'first model'} onPick={(id) => setCmpA(id)} />
@@ -83,6 +94,7 @@ export function Landing() {
       </section>
       <p className="mm-landing-foot">
         Structure comes from a meta-device instantiation; shapes come from a traced fake forward pass. Any public repo works — gated ones after you add a token.
+        Repos that need <code>trust_remote_code</code>: run <code>modelmap dump &lt;id&gt; --trust-remote-code</code> on your machine and drop the <code>.graph.json</code> anywhere on this page.
       </p>
       <p className="mm-landing-links">
         <a href="https://github.com/lizhaoliu/modelmap" target="_blank" rel="noreferrer">

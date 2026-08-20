@@ -193,7 +193,13 @@ def _weights_only(src: Source, revision: str, token: str | None, notes: list[str
     if src.local:
         tensors = weights_view.local_safetensors(src.repo)
         if not tensors:
-            raise LocalPathError(f"{src.repo}: no config.json transformers can load and no safetensors files")
+            hint = (
+                " — this repo's config needs trust_remote_code; retry with --trust-remote-code "
+                "(runs the repo's own Python)"
+                if any("trust_remote_code" in n for n in notes)
+                else ""
+            )
+            raise LocalPathError(f"{src.repo}: no config.json transformers can load and no safetensors files{hint}")
         return weights_view.weights_graph(src.model_id, revision=revision, notes=notes, tensors=tensors, weights_format=fmt)
     return weights_view.weights_graph(src.repo, revision=revision, token=token, notes=notes, weights_format=fmt)
 

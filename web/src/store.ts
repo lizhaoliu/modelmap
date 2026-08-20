@@ -25,6 +25,11 @@ export interface State {
   /** compare mode: apply an expansion set computed elsewhere (linked expansion) */
   setExpanded: (e: Set<string>) => void
   loadModel: (id: string, opts?: { push?: boolean }) => Promise<void>
+  /** render a graph document handed to us directly (drag-and-drop of a
+   *  `modelmap dump` file) — no server round trip, no URL claim */
+  loadDocFromFile: (doc: GraphDoc, filename: string) => void
+  /** the current doc came from a dropped file (server-side APIs won't have it) */
+  fileDoc: boolean
   toggleExpand: (id: string) => void
   expand: (id: string) => void
   expandMany: (ids: string[]) => void
@@ -123,6 +128,31 @@ export function createGraphStore(opts: StoreOptions): GraphStore {
     if (msg) setTimeout(() => get().toast === msg && set({ toast: null }), 3200)
   },
 
+  fileDoc: false,
+
+  loadDocFromFile(doc, filename) {
+    if (!Array.isArray(doc.nodes) || !doc.nodes.length || typeof doc.schema_version !== 'number') {
+      get().setToast(`${filename} is not a modelmap graph document`)
+      return
+    }
+    const index = buildIndex(doc)
+    set({
+      doc,
+      index,
+      fileDoc: true,
+      loading: null,
+      error: null,
+      errorModel: null,
+      expanded: defaultExpanded(index, doc),
+      selected: null,
+    })
+    if (opts.syncUrl) {
+      history.pushState({}, '', '/')
+      document.title = `${(doc.model_id ?? filename).split('/').pop()} · modelmap`
+    }
+    get().setToast(`${doc.model_id ?? filename} loaded from ${filename} — nothing was uploaded`)
+  },
+
   async loadModel(id, loadOpts) {
     if (get().loading === id) return
     set({ loading: id, error: null, errorModel: null })
@@ -132,6 +162,7 @@ export function createGraphStore(opts: StoreOptions): GraphStore {
       set({
         doc,
         index,
+        fileDoc: false,
         loading: null,
         error: null,
         errorModel: null,

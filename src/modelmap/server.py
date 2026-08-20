@@ -33,7 +33,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from modelmap import __version__, cache
-from modelmap.analytics import Assumptions, PlanRequest, WHATIF_DTYPES, plan_serving, summarize
+from modelmap.analytics import (
+    Assumptions, GPU_SPECS, PlanRequest, TrainRequest, WHATIF_DTYPES,
+    estimate_throughput, plan_serving, plan_training, summarize,
+)
 from modelmap.gallery import CLASSICS, trending, trending_ids
 from modelmap.ids import is_local, parse_model_id
 from modelmap.ratelimit import RateLimiter
@@ -113,10 +116,16 @@ def _worker_init(mem_mb: int) -> None:
         log.warning("worker rlimits not applied: %s", e)
 
 
-def _extract_job(model_id: str, revision: str, token: str | None, allow_local: bool = False) -> dict:
+def _extract_job(
+    model_id: str, revision: str, token: str | None,
+    allow_local: bool = False, trust_remote_code: bool = False,
+) -> dict:
     from modelmap.extract import extract_graph
 
-    return extract_graph(model_id, revision=revision, token=token, allow_local=allow_local).to_json_dict()
+    return extract_graph(
+        model_id, revision=revision, token=token,
+        allow_local=allow_local, trust_remote_code=trust_remote_code,
+    ).to_json_dict()
 
 
 # ------------------------------------------------------- de-dup / back-pressure
@@ -148,12 +157,16 @@ def _submit_shared(key: str, model_id: str, revision: str, token: str | None):
                 headers={"Retry-After": "5"},
             )
         try:
-            fut = _get_pool().submit(_extract_job, model_id, revision, token, settings.allow_local)
+            fut = _get_pool().submit(
+                _extract_job, model_id, revision, token, settings.allow_local, settings.trust_remote_code
+            )
         except concurrent.futures.process.BrokenProcessPool:
             # a worker died (memory cap, native fault): rebuild once and retry
             log.warning("extraction pool was broken; rebuilding")
             _reset_pool()
-            fut = _get_pool().submit(_extract_job, model_id, revision, token, settings.allow_local)
+            fut = _get_pool().submit(
+                _extract_job, model_id, revision, token, settings.allow_local, settings.trust_remote_code
+            )
         _inflight[key] = fut
         return fut, True
 
@@ -297,6 +310,7 @@ def health():
         "workers": settings.workers,
         "inflight": len(_inflight),
         "allow_local": settings.allow_local,
+        "trust_remote_code": settings.trust_remote_code,
     }
 
 
@@ -443,6 +457,7 @@ def plan(
     B: int = Query(default=1, ge=1, le=65536),
     dtype: str = Query(default="bf16"),
     headroom: float = Query(default=0.1, ge=0, le=0.9),
+    gpu: str | None = Query(default=None, description="GPU preset name (adds a roofline throughput estimate)"),
     x_hf_token: str | None = Header(default=None),
 ):
     """Serving placement estimate: per-GPU weights / KV / activation bytes for
@@ -453,7 +468,48 @@ def plan(
         raise HTTPException(400, f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
     doc = _load_doc(model_id, revision, x_hf_token, request)
     req = PlanRequest(gpus=gpus, gpu_memory_gb=gpu_memory_gb, tp=tp, pp=pp, T=T, B=B, dtype=dtype, headroom=headroom)
-    return plan_serving(doc, req).to_dict()
+    out = plan_serving(doc, req).to_dict()
+    if gpu:
+        tput = estimate_throughput(doc, gpu, tp=tp, T=T, B=B, dtype=dtype)
+        if tput is None:
+            raise HTTPException(400, f"unknown GPU preset '{gpu}'; one of: {', '.join(GPU_SPECS)}")
+        out["throughput"] = tput.to_dict()
+    return out
+
+
+@app.get("/api/train/{model_id:path}")
+def train(
+    model_id: str,
+    request: Request,
+    revision: str = "main",
+    method: str = Query(default="lora", pattern="^(full|lora|qlora)$"),
+    optimizer: str = Query(default="adamw", pattern="^(adamw|adamw8bit)$"),
+    lora_rank: int = Query(default=16, ge=1, le=1024),
+    lora_targets: str = Query(default="attn-mlp", pattern="^(attention|attn-mlp|all-linear)$"),
+    gpus: int = Query(default=1, ge=1, le=4096),
+    gpu_memory_gb: float = Query(default=80, ge=0, le=100000),
+    sharding: str = Query(default="none", pattern="^(none|zero2|zero3)$"),
+    T: int = Query(default=2048, ge=1, le=1 << 22),
+    B: int = Query(default=1, ge=1, le=65536),
+    grad_checkpoint: bool = True,
+    flash_attention: bool = True,
+    headroom: float = Query(default=0.1, ge=0, le=0.9),
+    gpu: str | None = Query(default=None, description="GPU preset name for a speed estimate"),
+    x_hf_token: str | None = Header(default=None),
+):
+    """Fine-tuning memory estimate (design doc §22): full / LoRA / QLoRA,
+    optimizer states, activations with/without checkpointing, ZeRO sharding —
+    per-GPU bytes, whether it fits, and the largest micro-batch that does."""
+    model_id = _check_id(model_id)
+    if gpu and gpu not in GPU_SPECS:
+        raise HTTPException(400, f"unknown GPU preset '{gpu}'; one of: {', '.join(GPU_SPECS)}")
+    doc = _load_doc(model_id, revision, x_hf_token, request)
+    req = TrainRequest(
+        method=method, optimizer=optimizer, lora_rank=lora_rank, lora_targets=lora_targets,
+        gpus=gpus, gpu_memory_gb=gpu_memory_gb, sharding=sharding, T=T, B=B,
+        grad_checkpoint=grad_checkpoint, flash_attention=flash_attention, headroom=headroom, gpu=gpu,
+    )
+    return plan_training(doc, req).to_dict()
 
 
 @app.get("/api/compare")
@@ -484,6 +540,39 @@ def _with_cache(entries: list[dict]) -> list[dict]:
         s = cache.summary(g["id"], "main") if cache.has(g["id"], "main") else None
         out.append({**g, "cached": s is not None, "summary": s})
     return out
+
+
+@app.get("/api/models")
+def models_catalog():
+    """The architecture zoo (design doc §23): one row of structural facts per
+    cached graph — params, active params, layers/hidden/heads, KV bytes,
+    derived tags (moe, mla, gqa, vlm, …) and family."""
+    from modelmap.zoo import catalog
+
+    return {"models": catalog()}
+
+
+@app.get("/api/families")
+def families():
+    """Curated family pages: title, blurb, ordered lineage members (each with
+    its catalog entry when cached)."""
+    from modelmap.zoo import families_payload
+
+    return {"families": families_payload()}
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap(request: Request):
+    from modelmap.zoo import FAMILIES, catalog
+
+    base = "https://modelmap.cc"
+    urls = [f"{base}/", f"{base}/models"] + [f"{base}/arch/{f['key']}" for f in FAMILIES] + [
+        f"{base}/m/{e['model_id']}" for e in catalog() if e.get("model_id") and not str(e["model_id"]).startswith("local:")
+    ]
+    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+    body += "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls)
+    body += "</urlset>\n"
+    return Response(body, media_type="application/xml")
 
 
 @app.get("/api/gallery")

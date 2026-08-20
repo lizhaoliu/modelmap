@@ -402,6 +402,10 @@ footer {
     <li><a href="#m8b"><span class="no">18</span>M8 · Quantized &amp; local checkpoints</a></li>
     <li><a href="#m9"><span class="no">19</span>M9 · Alive by default</a></li>
     <li><a href="#m10"><span class="no">20</span>M10 · Live mode</a></li>
+    <li><a href="#m11"><span class="no">21</span>M11 · Coverage</a></li>
+    <li><a href="#m12"><span class="no">22</span>M12 · Training planner &amp; speed</a></li>
+    <li><a href="#m13"><span class="no">23</span>M13 · The architecture zoo</a></li>
+    <li><a href="#m14"><span class="no">24</span>M14 · Live interpretability</a></li>
   </ul>
 </section>
 
@@ -841,6 +845,26 @@ footer {
       <p>Real inference in the visitor's browser (llama + gpt2 engines in TS, Web Worker): true next-token probabilities, per-head attention heatmaps, a logit lens, streamed generation rippling through the map (§20).</p>
       <p class="accept">accepts when <b>TinyLLama-v0 answers "…there was a little" with girl on top and the fixture suite pins the engine to transformers</b>.</p>
     </div></div>
+    <div class="ms"><div class="tag">M11</div><div>
+      <h3>Coverage</h3>
+      <p>Drag-and-drop graph files (trust_remote_code models render client-side), serve --trust-remote-code locally, self-explaining refusals (§21).</p>
+      <p class="accept">accepts when <b>a dumped custom-code graph drops onto modelmap.cc and replays</b>.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M12</div><div>
+      <h3>Training planner &amp; speed</h3>
+      <p>Full/LoRA/QLoRA memory with ZeRO sharding + roofline tok/s per GPU preset, in the UI/CLI/REST/MCP as Python+TS twins (§22).</p>
+      <p class="accept">accepts when <b>"QLoRA Qwen3-8B on 24 GB?" and "tok/s on an A100?" get numeric answers</b> the twins agree on.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M13</div><div>
+      <h3>Architecture zoo</h3>
+      <p>/models catalog with derived structural tags; /arch family pages whose lineage arrows are live diffs; sitemap (§23).</p>
+      <p class="accept">accepts when <b>/arch/qwen tells the Qwen2→Qwen3 story from data alone</b>.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M14</div><div>
+      <h3>Live interpretability</h3>
+      <p>Head ablation with Δ display and exact restore, per-head pattern tags, qwen2/qwen3 engines (§24).</p>
+      <p class="accept">accepts when <b>silencing a head shifts the distribution and restore is bit-exact</b>.</p>
+    </div></div>
   </div>
 </section>
 
@@ -1077,8 +1101,61 @@ footer {
   <p class="accept">accepts when <b>TinyLLama-v0 downloads in seconds and answers "Once upon a time there was a little" with girl on top, a real per-head heatmap, a layer-by-layer lens, and a coherent generated story</b> — and the fixture suite pins the engine to transformers within f32 tolerance.</p>
 </section>
 
+<section id="m11">
+  <span class="eyebrow"><span class="no">21</span> M11 · Coverage</span>
+  <h2>No model left behind</h2>
+  <p>A growing share of frontier repos (Kimi-K3 and friends) ship their own modeling Python and demand <code>trust_remote_code</code> — which the hosted server refuses by design, degrading them to a weights view with no trace and no Flow. M11 closes the loop without weakening the server:</p>
+  <ul>
+    <li><strong>Drag-and-drop graphs.</strong> Any <code>.graph.json</code>(<code>.gz</code>) from <code>modelmap dump</code> can be dropped onto the app — hosted or local — and renders fully client-side: flow replay, lenses, treemap, PNG/SVG export. Nothing is uploaded; a <em>file</em> tag marks the provenance and server-backed actions (CSV/MD/DOT exports, share links) hide themselves.</li>
+    <li><strong>Local opt-in.</strong> <code>modelmap dump &lt;id&gt; --trust-remote-code</code> (existing) plus <code>modelmap serve --trust-remote-code</code> (new, <code>MODELMAP_TRUST_REMOTE_CODE</code>): your machine, your trust decision. The hosted deployment never sets it.</li>
+    <li><strong>The refusal explains itself.</strong> The disabled ▶ flow button's tooltip now states the actual reason and the two-step workaround; a local dir whose config needs custom code errors with the <code>--trust-remote-code</code> hint.</li>
+  </ul>
+  <p class="accept">accepts when <b>a graph dumped from a custom-code repo drops onto modelmap.cc and replays</b>, with server exports cleanly withheld — verified with a self-authored custom-code checkpoint (no third-party code executed in tests).</p>
+</section>
+
+<section id="m12">
+  <span class="eyebrow"><span class="no">22</span> M12 · Training planner &amp; speed</span>
+  <h2>The questions people rent GPUs over</h2>
+  <p>The serve planner answered "does inference fit". The two questions left: <em>can I fine-tune it</em>, and <em>how fast will it run</em>. Both are analytics over facts the graph already holds; both ship as Python + TypeScript twins pinned to the same fixture numbers, surfaced in the planner UI (a serve / fine-tune tab pair), <code>modelmap train</code> / <code>plan --gpu</code>, <code>/api/train</code>, and the MCP <code>plan_finetune</code> tool.</p>
+  <h3>Fine-tuning memory</h3>
+  <ul>
+    <li><strong>Methods:</strong> full FT (bf16 weights, the 16 B/param convention: 2 w + 2 g + 12 optimizer), LoRA (adapters r × (in + out) over the chosen targets — attention / attn+mlp / all-linear; fused 3-D expert weights excluded), QLoRA (frozen base at NF4 ≈ 0.55 B/param). AdamW vs 8-bit AdamW (12 vs 6 B/trainable incl. the fp32 master).</li>
+    <li><strong>Activations from the trace:</strong> without checkpointing, the summed traced activations (+ heads × T² scores unless flash attention); with checkpointing, layer inputs + one resident block.</li>
+    <li><strong>Sharding:</strong> none / ZeRO-2 / ZeRO-3 (FSDP) across N data-parallel GPUs; outputs per-GPU weights / grads / optimizer / activations, fits?, and the largest micro-batch at T.</li>
+    <li>Checked numbers: LoRA r=16 attn+mlp on Qwen3-8B = 43.6 M trainable; QLoRA fits a 24 GB card with micro-batch ≥ 8; full FT needs 8 × 80 GB at ZeRO-3.</li>
+  </ul>
+  <h3>Roofline throughput</h3>
+  <p>A GPU spec table (approximate dense-bf16 TFLOPs + HBM bandwidth for 13 presets) drives estimates that are always labeled as such: <strong>prefill</strong> is compute-bound (MACs vs 40 % MFU), <strong>decode</strong> is bandwidth-bound (active weight bytes + the KV cache read per token vs 60 % of peak — MoE streams only its active experts), batching amortizes the weight read. Qwen3-8B on one A100: ≈ 7,100 tok/s prefill, ≈ 72 tok/s decode at B = 1 — the numbers people sanity-check against vLLM.</p>
+  <p class="accept">accepts when <b>the planner answers "QLoRA Qwen3-8B on one 24 GB card?" (yes, micro-batch 19 at T 2048) and "tok/s on an A100?" (≈72 decode)</b> with both language twins agreeing to the digit.</p>
+</section>
+
+<section id="m13">
+  <span class="eyebrow"><span class="no">23</span> M13 · The architecture zoo</span>
+  <h2>Reference pages nobody has to maintain</h2>
+  <p>modelmap's cache is a growing set of structural facts nobody else surfaces. M13 makes them browsable — and every number on every page is derived live from the graphs, never hand-written.</p>
+  <ul>
+    <li><strong>/models</strong> — the catalog: one row per cached graph (params, active params, layers/hidden/heads, context, KV/token) with derived <em>tags</em> — <code>moe 8/128</code>, <code>mla</code>, <code>gqa 4×</code>, <code>vlm</code>, <code>sliding-window</code>, <code>mixed-blocks</code>, <code>quant:fp8</code>, <code>ctx 1M</code> — filterable by tag or text, one row per (model, variant) with the newest schema winning. Also <code>/api/models</code>.</li>
+    <li><strong>/arch/&lt;family&gt;</strong> — eight curated families (qwen, llama, deepseek, gpt, mistral, bert, t5, whisper): a hand-written two-sentence blurb, then the lineage as member cards whose connecting arrows are <em>live structural diffs</em> ("Qwen2.5-7B → Qwen3-8B: 20 changed · +2 — hidden_size, num_hidden_layers…", clicking opens the full compare; identical designs say "identical structure"). Members are baked into the image at build.</li>
+    <li><strong>sitemap.xml</strong> lists the landing, catalog, family pages and every cached model page.</li>
+  </ul>
+  <p class="accept">accepts when <b>/arch/qwen tells the Qwen2 → Qwen3 story from data alone</b> — the q/k-norm addition and bias drop appear in a lineage arrow, not in prose.</p>
+</section>
+
+<section id="m14">
+  <span class="eyebrow"><span class="no">24</span> M14 · Live interpretability</span>
+  <h2>Poke the network and watch it answer</h2>
+  <p>Live mode (§20) put real inference in the browser; M14 makes it an instrument.</p>
+  <ul>
+    <li><strong>Head ablation.</strong> Pick any attention head and <em>silence</em> it — its output is zeroed (the attention pattern still shows what it wanted to look at) and the whole sequence re-runs. The next-token bars grow ▲/▼ deltas against the un-ablated baseline; <em>restore</em> returns bit-exactly (pinned by test). "What does this head do" becomes a two-click experiment.</li>
+    <li><strong>Head fingerprints.</strong> Per head, the engine reports how much attention lands on the previous token, position 0 (the sink), itself, and how spread out it is — heads get tags (<code>prev-token</code>, <code>sink</code>, <code>self</code>, <code>broad</code>) in the head picker and a stats line under the heatmap.</li>
+    <li><strong>Two more architectures.</strong> qwen3 (per-head q/k RMSNorm before rope) and qwen2 (qkv biases) join llama and gpt2 in the engine, each pinned to real transformers by its own tiny fixture — small Qwen fine-tunes now run live.</li>
+    <li><em>Scoped out, deliberately:</em> a WebGPU backend (would allow ~1B models at interactive speed) — CPU in a worker covers the curated models, and WebGPU is untestable in this project's headless CI; revisit when that changes.</li>
+  </ul>
+  <p class="accept">accepts when <b>silencing a head visibly shifts the next-token distribution and restoring recovers the exact baseline</b>, and the qwen fixtures match transformers within f32 tolerance.</p>
+</section>
+
 <footer>
-  modelmap · design doc v1.4 · M1–M10 shipped
+  modelmap · design doc v1.5 · M1–M14 shipped
 </footer>
 
 </div>

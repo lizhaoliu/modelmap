@@ -37,6 +37,10 @@ class Settings:
     # "local:/path" ids read checkpoints from this machine's disk — the CLI
     # turns it on for loopback serving; never set it on a public deployment
     allow_local: bool = field(default_factory=lambda: _bool("MODELMAP_ALLOW_LOCAL", False))
+    # execute repos' own modeling Python during extraction (arbitrary code!) —
+    # `modelmap serve --trust-remote-code` on your own machine only; the
+    # hosted deployment must never set it
+    trust_remote_code: bool = field(default_factory=lambda: _bool("MODELMAP_TRUST_REMOTE_CODE", False))
 
 
 settings = Settings()

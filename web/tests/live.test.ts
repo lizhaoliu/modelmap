@@ -31,7 +31,7 @@ function maxAbsDiff(a: ArrayLike<number>, b: ArrayLike<number>): number {
   return m
 }
 
-function checkModel(name: 'llama-tiny' | 'gpt2-tiny') {
+function checkModel(name: 'llama-tiny' | 'gpt2-tiny' | 'qwen3-tiny' | 'qwen2-tiny') {
   const cfg = json<Record<string, unknown>>(`${name}.config.json`)
   const exp = json<Expected>(`${name}.expected.json`)
   const model = new LiveModel(cfg as never, buf(`${name}.safetensors`))
@@ -81,6 +81,50 @@ function checkModel(name: 'llama-tiny' | 'gpt2-tiny') {
 
 describe('live engine: llama architecture', () => checkModel('llama-tiny'))
 describe('live engine: gpt2 architecture', () => checkModel('gpt2-tiny'))
+describe('live engine: qwen3 (per-head q/k norm)', () => checkModel('qwen3-tiny'))
+describe('live engine: qwen2 (qkv bias)', () => checkModel('qwen2-tiny'))
+
+describe('head ablation (§24)', () => {
+  it('zeroing a head changes the logits; clearing restores them exactly', () => {
+    const cfg = json<Record<string, unknown>>('llama-tiny.config.json')
+    const exp = json<Expected>('llama-tiny.expected.json')
+    const m = new LiveModel(cfg as never, buf('llama-tiny.safetensors'))
+    const base = m.forward(exp.prompt)
+    m.ablated.add('0:1')
+    m.reset()
+    const cut = m.forward(exp.prompt)
+    expect(maxAbsDiff(cut, base)).toBeGreaterThan(1e-4)
+    m.ablated.clear()
+    m.reset()
+    const restored = m.forward(exp.prompt)
+    expect(maxAbsDiff(restored, base)).toBe(0)
+    // attention probabilities are computed pre-ablation: the head still LOOKS,
+    // its output is what gets dropped
+    m.ablated.add('0:1')
+    m.reset()
+    m.forward(exp.prompt)
+    const attn = m.attnMatrix(0)
+    const S = exp.prompt.length
+    expect(Math.abs(attn.data[1 * S * S + (S - 1) * S] - exp.attn_layer0[1][S - 1][0])).toBeLessThan(2e-5)
+  })
+
+  it('head stats: probabilities sum sensibly and tags are consistent', () => {
+    const cfg = json<Record<string, unknown>>('llama-tiny.config.json')
+    const exp = json<Expected>('llama-tiny.expected.json')
+    const m = new LiveModel(cfg as never, buf('llama-tiny.safetensors'))
+    m.forward(exp.prompt)
+    const stats = m.headStats(0)
+    expect(stats).toHaveLength(4)
+    for (const s of stats) {
+      expect(s.prev).toBeGreaterThanOrEqual(0)
+      expect(s.prev).toBeLessThanOrEqual(1)
+      expect(s.entropy).toBeGreaterThanOrEqual(0)
+      expect(s.entropy).toBeLessThanOrEqual(1.0001)
+      if (s.tag === 'prev-token') expect(s.prev).toBeGreaterThan(0.4)
+      if (s.tag === 'sink') expect(s.first).toBeGreaterThan(0.55)
+    }
+  })
+})
 
 describe('live engine: bf16 checkpoints', () => {
   it('llama-tiny.bf16 stays close to the f32 logits and agrees on top-1', () => {

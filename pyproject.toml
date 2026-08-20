@@ -1,6 +1,6 @@
 [project]
 name = "modelmap"
-version = "0.3.0"
+version = "0.4.0"
 description = "Interactive, animated architecture maps for any Hugging Face model — no weights downloaded"
 readme = "README.md"
 requires-python = ">=3.11"
