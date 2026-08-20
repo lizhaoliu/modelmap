@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchGallery, fetchHealth, gotoCompare, type Gallery, type GalleryEntry } from '../api'
 import { fmtCount, fmtParams } from '../fmt'
 import { useStore } from '../store'
+import { HeroFlow } from './HeroFlow'
 import { ModelSearch } from './ModelSearch'
 
 export function Landing() {
@@ -31,6 +32,7 @@ export function Landing() {
         <p className="mm-tagline">
           Paste a Hugging Face model id. Get a living map of the network — no weights downloaded.
         </p>
+        <HeroFlow />
         <ModelSearch big />
       </div>
       {gallery === null && <p className="mm-gallery-loading">loading gallery…</p>}

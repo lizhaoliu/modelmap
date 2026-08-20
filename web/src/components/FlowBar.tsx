@@ -26,6 +26,8 @@ export function FlowBar({ script, api }: { script: FlowScript; api: FlowApi }) {
   const play = useFlowStore((s) => s.play)
   const pause = useFlowStore((s) => s.pause)
   const setSpeed = useFlowStore((s) => s.setSpeed)
+  const follow = useFlowStore((s) => s.follow)
+  const setFollow = useFlowStore((s) => s.setFollow)
   const deactivate = useFlowStore((s) => s.deactivate)
   const doc = useStore((s) => s.doc)
   const index = useStore((s) => s.index)
@@ -107,6 +109,13 @@ export function FlowBar({ script, api }: { script: FlowScript; api: FlowApi }) {
           title="Playback speed"
         >
           {speed}×
+        </button>
+        <button
+          className={`mm-btn mm-flow-follow ${follow ? 'is-on' : ''}`}
+          onClick={() => setFollow(!follow)}
+          title="Camera follows the pulse (panning by hand turns this off)"
+        >
+          follow
         </button>
         <button className="mm-btn" onClick={deactivate} title="Exit flow mode (Esc)">
           ✕

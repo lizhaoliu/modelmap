@@ -19,6 +19,7 @@ shutil.copy(hf_hub_download("openai-community/gpt2", "config.json"), os.path.joi
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     ctx = b.new_context(viewport={"width": 1440, "height": 900}, permissions=["clipboard-read", "clipboard-write"], accept_downloads=True)
+    ctx.add_init_script("localStorage.setItem('mm-autoflow-done','1')")
     page = ctx.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))

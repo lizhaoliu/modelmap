@@ -9,11 +9,16 @@ interface FlowUI {
   beatIdx: number
   tCoarse: number
   total: number
-  activate: () => void
+  /** camera tracks the pulse; a manual pan/zoom during flow turns it off */
+  follow: boolean
+  /** this activation was the first-visit autoplay, not a user action */
+  auto: boolean
+  activate: (opts?: { auto?: boolean }) => void
   deactivate: () => void
   play: () => void
   pause: () => void
   setSpeed: (s: number) => void
+  setFollow: (v: boolean) => void
   _setBeat: (i: number) => void
   _setCoarse: (t: number) => void
   _setTotal: (t: number) => void
@@ -33,17 +38,21 @@ export const useFlowStore = create<FlowUI>((set) => ({
   beatIdx: 0,
   tCoarse: 0,
   total: 0,
-  activate: () => {
+  follow: true,
+  auto: false,
+  activate: (opts) => {
     syncUrl(true)
-    set({ active: true, playing: true, beatIdx: 0, tCoarse: 0 })
+    localStorage.setItem('mm-flow-used', '1')
+    set({ active: true, playing: true, beatIdx: 0, tCoarse: 0, follow: true, auto: Boolean(opts?.auto) })
   },
   deactivate: () => {
     syncUrl(false)
-    set({ active: false, playing: false })
+    set({ active: false, playing: false, auto: false })
   },
   play: () => set({ playing: true }),
   pause: () => set({ playing: false }),
   setSpeed: (speed) => set({ speed }),
+  setFollow: (follow) => set({ follow }),
   _setBeat: (beatIdx) => set({ beatIdx }),
   _setCoarse: (tCoarse) => set({ tCoarse }),
   _setTotal: (total) => set({ total }),

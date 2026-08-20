@@ -8,6 +8,7 @@ const ROWS: [string, string][] = [
   ['← →', 'step one beat back / forward'],
   ['Esc', 'exit Flow mode · clear the selection'],
   ['?', 'this help'],
+  ['⚡ live', 'run small models in your browser: real attention, logit lens, generation'],
   ['export ▾', 'PNG / SVG of this view · Markdown · CSV · JSON · DOT · embed code'],
   ['fit?', 'serving planner: GPUs × memory, TP / PP split, max context'],
 ]

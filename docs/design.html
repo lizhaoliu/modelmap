@@ -400,6 +400,8 @@ footer {
     <li><a href="#m7"><span class="no">16</span>M7 · Export &amp; integrate</a></li>
     <li><a href="#m8"><span class="no">17</span>M8 · Serving planner</a></li>
     <li><a href="#m8b"><span class="no">18</span>M8 · Quantized &amp; local checkpoints</a></li>
+    <li><a href="#m9"><span class="no">19</span>M9 · Alive by default</a></li>
+    <li><a href="#m10"><span class="no">20</span>M10 · Live mode</a></li>
   </ul>
 </section>
 
@@ -829,6 +831,16 @@ footer {
       <p>GGUF variants via header range reads with real bits per weight, quantization_config dtypes, local checkpoints, interleaved repeat stacks, serving planner (§17, §18).</p>
       <p class="accept">accepts when <b>Qwen3-8B-GGUF:Q4_K_M reports ≈ 4.4 GB of weights and DeepSeek-V4's alternating layers collapse</b>; the planner splits Qwen3-8B 0–17 / 18–35 at pp = 2.</p>
     </div></div>
+    <div class="ms"><div class="tag">M9</div><div>
+      <h3>Alive by default</h3>
+      <p>Landing hero replay, first-visit autoplay, drifting edges, tensor-scaled edge widths, camera follow (§19).</p>
+      <p class="accept">accepts when <b>a first visit animates within a second</b> and reduced-motion users get a still map.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M10</div><div>
+      <h3>Live mode</h3>
+      <p>Real inference in the visitor's browser (llama + gpt2 engines in TS, Web Worker): true next-token probabilities, per-head attention heatmaps, a logit lens, streamed generation rippling through the map (§20).</p>
+      <p class="accept">accepts when <b>TinyLLama-v0 answers "…there was a little" with girl on top and the fixture suite pins the engine to transformers</b>.</p>
+    </div></div>
   </div>
 </section>
 
@@ -1029,8 +1041,44 @@ footer {
   <p class="accept">accepts when <b>Qwen/Qwen3-8B-GGUF opens as Q4_K_M with a picker of 5 variants, q_proj reads "Q4_K · 4.5 bpw", and switching to Q8_0 re-extracts with ≈ 7.5 GB of weights</b>; Qwen3-235B-A22B-FP8 reports ≈ 223 GB; a local directory holding only gpt2's <code>config.json</code> renders at full fidelity; DeepSeek-V4-Flash's layers collapse.</p>
 </section>
 
+<section id="m9">
+  <span class="eyebrow"><span class="no">19</span> M9 · Alive by default</span>
+  <h2>The animation must not hide behind a button</h2>
+  <p>Launch feedback was blunt: <em>"when you mean interactive and animated i had high hopes."</em> The replay existed, but a visitor who landed on a model link saw a static box diagram — the motion sat behind a small toolbar button, and even when found, one amber pulse on a still canvas read as choreography, not a living system. M9 makes motion the default impression without touching the data model.</p>
+  <ul>
+    <li><strong>The landing hero is itself a replay.</strong> A canned mini-map (tokens → embed → blocks ×12 → norm → head → rising logits) runs a nine-second loop with a narrated caption — the first paint of modelmap is the animation. Pure CSS keyframes; <code>prefers-reduced-motion</code> freezes it into a static diagram.</li>
+    <li><strong>First-visit autoplay.</strong> Once per browser, a loaded model starts its own replay (never under reduced motion, never in compare or embed canvases), announces itself with a toast, and bows out at the end with "press F or ▶ flow to replay". Until flow has been used once, its button carries a soft glow.</li>
+    <li><strong>The whole map moves during a replay.</strong> Every main-path edge drifts (dash animation) while flow is active; edge <em>widths</em> permanently encode the traced output tensor size, so the residual stream reads thicker than a rotary side-feed.</li>
+    <li><strong>The camera follows the pulse.</strong> On each beat the viewport recenters when the active node leaves the middle 50 % of the screen (beat-boundary panning — smooth, no per-frame jitter); a manual pan or zoom hands the camera back, and a <code>follow</code> toggle in the flow bar re-engages it.</li>
+  </ul>
+  <p class="accept">accepts when <b>a first visit to a model link starts animating within a second of layout, with drifting edges and a tracking camera</b>, a second visit stays still, and reduced-motion users get a static hero, no autoplay, and no glow animation.</p>
+</section>
+
+<section id="m10">
+  <span class="eyebrow"><span class="no">20</span> M10 · Live mode</span>
+  <h2>Real data in the map: inference in the visitor's browser</h2>
+  <p>The deeper "high hopes" reading: people compare any animated LLM visual to Bycroft's 3D GPT, where actual values move. modelmap's core trick — never touching weights — is exactly why its replay could only show shapes. Live mode squares that circle: for small models, <em>the browser</em> downloads the checkpoint (the server still never sees a weight) and runs real inference on the visitor's CPU, in a Web Worker, through an engine written for this UI.</p>
+
+  <h3>The engine</h3>
+  <ul>
+    <li><strong>~600 lines of TypeScript on Float32Arrays</strong> (<code>web/src/live/</code>): a safetensors reader (F32/BF16/F16), two tokenizer families read straight from <code>tokenizer.json</code> (byte-level BPE for gpt2/SmolLM2 incl. the Digits pre-tokenizer; sentencepiece-style BPE with byte fallback for llama tokenizers), and forward passes for the <strong>llama</strong> family (RMSNorm, rotary, GQA, SwiGLU, tied heads, optional qkv bias) and <strong>GPT-2</strong> (learned positions, Conv1D transposition, gelu_new) with a KV cache.</li>
+    <li><strong>Why hand-rolled rather than transformers.js:</strong> ONNX exports hide exactly what this UI needs — per-head attention probabilities and per-layer hidden states. Owning the forward pass makes them first-class outputs.</li>
+    <li><strong>Correctness is pinned, not hoped for.</strong> <code>scripts/gen_live_fixtures.py</code> runs tiny random-weight models through real <code>transformers</code> and real <code>tokenizers</code>; vitest then demands the JS engine match: last-position logits within 2 × 10⁻⁴, every attention probability within 2 × 10⁻⁵, logit-lens argmax per layer, greedy continuations token for token (through the KV cache), bf16 within rounding, and byte-identical encodings for three real tokenizer.json files across unicode / emoji / digit / contraction cases.</li>
+    <li><strong>Measured:</strong> TinyLLama-v0 (4.6 M) ≈ 4 ms/token; SmolLM2-135M ≈ 110 ms/token with a ~0.5 s prefill; distilgpt2 ≈ 66 ms/token — all single-threaded CPU in a worker.</li>
+  </ul>
+
+  <h3>The experience</h3>
+  <ul>
+    <li><strong>⚡ live</strong> in the top bar (models with a single-file f32/bf16 safetensors llama/gpt2 checkpoint under 700 MB; others get an explanation plus curated picks — TinyLLama-v0 at 9 MB is the instant default, and a ⚡ classic card advertises it on the landing).</li>
+    <li>Type a prompt → <strong>run</strong>: the prompt's real tokens, the true next-token top-5 with probabilities ("Once upon a time there was a little" → <em>girl 33 %</em>), a <strong>logit lens</strong> strip (each layer's hidden state projected straight to vocabulary — the prediction sharpening through the depth), and a <strong>per-head attention heatmap</strong> with a layer slider and head selector. Clicking an attention block on the map retargets the heatmap to that layer.</li>
+    <li><strong>generate ▶</strong> samples tokens (greedy / t 0.7 / t 1.0) streamed live; each token ripples left-to-right across the visible map nodes, and the lens + heatmap refresh when it settles. Flow replay and live mode share the bottom of the canvas and close each other.</li>
+    <li>Weights are fetched once from huggingface.co over CORS, held in memory only; the mobile layout hides live mode (phone CPUs and 100 MB downloads don't mix).</li>
+  </ul>
+  <p class="accept">accepts when <b>TinyLLama-v0 downloads in seconds and answers "Once upon a time there was a little" with girl on top, a real per-head heatmap, a layer-by-layer lens, and a coherent generated story</b> — and the fixture suite pins the engine to transformers within f32 tolerance.</p>
+</section>
+
 <footer>
-  modelmap · design doc v1.3 · M1–M8 shipped
+  modelmap · design doc v1.4 · M1–M10 shipped
 </footer>
 
 </div>

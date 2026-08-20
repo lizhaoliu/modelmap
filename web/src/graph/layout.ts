@@ -38,7 +38,7 @@ const BASE_OPTS = {
   'elk.spacing.nodeNode': '24',
 }
 
-function mkEdge(id: string, source: string, target: string, aux: boolean): Edge {
+function mkEdge(id: string, source: string, target: string, aux: boolean, width = 1.2): Edge {
   return {
     id,
     type: 'mm',
@@ -47,9 +47,18 @@ function mkEdge(id: string, source: string, target: string, aux: boolean): Edge 
     data: { aux },
     style: aux
       ? { stroke: EDGE_COLOR, strokeWidth: 1.1, strokeDasharray: '4 4', opacity: 0.8 }
-      : { stroke: EDGE_COLOR, strokeWidth: 1.2 },
+      : { stroke: EDGE_COLOR, strokeWidth: width },
     markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR },
   }
+}
+
+/** Main-path edges carry the tensor that flows through them: stroke width
+ *  scales gently with the source's traced output elements (§19). */
+function edgeWidth(index: GraphIndex, src: string): number {
+  const out = index.traceByNode.get(src)?.outputs?.[0]
+  if (!out?.length) return 1.2
+  const numel = out.reduce((a, b) => a * b, 1)
+  return Math.min(2.8, 1.1 + Math.max(0, (Math.log10(numel) - 3.5) * 0.45))
 }
 
 /** Count and describe what a collapsed "×N" stack stands for. */
@@ -203,12 +212,14 @@ export async function layoutGraph(
         },
         draggable: false,
       })
-      for (const e of s.edges ?? []) edges.push(mkEdge(e.id, e.sources[0], e.targets[0], auxIds.has(e.id)))
+      for (const e of s.edges ?? [])
+        edges.push(mkEdge(e.id, e.sources[0], e.targets[0], auxIds.has(e.id), edgeWidth(index, e.sources[0])))
       walk(kids, s.id, childDir, absX, absY)
     }
   }
   walk(laid.children ?? [], undefined, 'h')
-  for (const e of laid.edges ?? []) edges.push(mkEdge(e.id, e.sources[0], e.targets[0], auxIds.has(e.id)))
+  for (const e of laid.edges ?? [])
+    edges.push(mkEdge(e.id, e.sources[0], e.targets[0], auxIds.has(e.id), edgeWidth(index, e.sources[0])))
 
   return { nodes, edges, positions }
 }

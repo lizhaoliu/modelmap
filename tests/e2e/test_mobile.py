@@ -7,6 +7,7 @@ with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     iphone = p.devices["iPhone 13"]
     ctx = b.new_context(**iphone)
+    ctx.add_init_script("localStorage.setItem('mm-autoflow-done','1')")
     page = ctx.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))

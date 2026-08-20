@@ -3,6 +3,7 @@ import { getToken, gotoCompare, gotoModel } from '../api'
 import { useCompareStore } from '../compare/compareStore'
 import { urlCompare } from '../App'
 import { useFlowStore } from '../flow/flowStore'
+import { liveSupport, useLiveStore } from '../live/liveStore'
 import { fmtParams } from '../fmt'
 import { useStore } from '../store'
 import { ExportMenu } from './ExportMenu'
@@ -23,6 +24,8 @@ export function TopBar() {
   const flowActive = useFlowStore((s) => s.active)
   const activateFlow = useFlowStore((s) => s.activate)
   const deactivateFlow = useFlowStore((s) => s.deactivate)
+  const liveOpen = useLiveStore((s) => s.open)
+  const toggleLive = useLiveStore((s) => s.toggle)
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem('mm-theme') as Theme) || 'dark', // dark by default
   )
@@ -120,9 +123,9 @@ export function TopBar() {
           <span className="mm-total-params">{fmtParams(doc.params_total)} params</span>
           {doc.trace.length > 0 ? (
             <button
-              className={`mm-btn mm-btn-flow ${flowActive ? 'is-on' : ''}`}
+              className={`mm-btn mm-btn-flow ${flowActive ? 'is-on' : ''} ${!flowActive && !localStorage.getItem('mm-flow-used') ? 'mm-glow' : ''}`}
               onClick={() => (flowActive ? deactivateFlow() : activateFlow())}
-              title="Replay the forward pass (F)"
+              title="Watch a token flow through the model (F)"
             >
               {flowActive ? 'exit flow' : '▶ flow'}
             </button>
@@ -131,6 +134,17 @@ export function TopBar() {
               ▶ flow
             </button>
           )}
+          <button
+            className={`mm-btn mm-btn-live ${liveOpen ? 'is-on' : ''}`}
+            onClick={() => toggleLive(doc)}
+            title={
+              liveSupport(doc).ok
+                ? 'Run this model in your browser: type a prompt, see real attention and next-token probabilities'
+                : 'Live inference (this model cannot run in the browser — the panel suggests ones that can)'
+            }
+          >
+            ⚡ live
+          </button>
           <button className="mm-btn mm-btn-share" onClick={share}>
             {copied ? 'copied ✓' : 'share'}
           </button>

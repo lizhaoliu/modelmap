@@ -5,7 +5,9 @@ from _common import BASE, SHOTS, check, finish
 
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
-    page = b.new_page(viewport={"width": 1600, "height": 900})
+    _ctx = b.new_context(viewport={"width": 1600, "height": 900})
+    _ctx.add_init_script("localStorage.setItem('mm-autoflow-done','1')")
+    page = _ctx.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
 

@@ -4,8 +4,10 @@ import { Canvas } from './components/Canvas'
 import { CompareView } from './components/CompareView'
 import { Inspector } from './components/Inspector'
 import { Landing } from './components/Landing'
+import { LiveBar } from './components/LiveBar'
 import { Sheet } from './components/Sheet'
 import { TopBar } from './components/TopBar'
+import { resetLive } from './live/liveStore'
 import { useStore } from './store'
 
 const LOAD_STAGES = [
@@ -55,6 +57,11 @@ export function urlCompare(): [string, string] | null {
 export default function App() {
   const doc = useStore((s) => s.doc)
   const loading = useStore((s) => s.loading)
+  // a different model means a different live session (weights, tokenizer, cache)
+  const modelId = doc?.model_id
+  useEffect(() => {
+    resetLive()
+  }, [modelId])
   const error = useStore((s) => s.error)
   const errorModel = useStore((s) => s.errorModel)
   const toast = useStore((s) => s.toast)
@@ -109,6 +116,7 @@ export default function App() {
           ) : doc ? (
             <>
               <Canvas />
+              {!embed && <LiveBar />}
               {!embed && (
                 <Sheet>
                   <Inspector />

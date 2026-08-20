@@ -127,6 +127,7 @@ export function useFlowEngine(
         st.current.t += dt * s.speed
         if (st.current.t >= scriptRef.current.total) {
           st.current.t = scriptRef.current.total
+          s._setCoarse(st.current.t) // the end is exact — auto-exit watches it
           s.pause()
         }
         internal._applyFrame(st.current.t)

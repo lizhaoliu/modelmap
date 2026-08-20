@@ -13,6 +13,7 @@ import { useCostStore } from '../analytics/costStore'
 import { buildFlowScript } from '../flow/beats'
 import { useFlowEngine } from '../flow/engine'
 import { useFlowStore } from '../flow/flowStore'
+import { useLiveStore } from '../live/liveStore'
 import { layoutGraph, type MMNode, type Rect } from '../graph/layout'
 import { edgeTypes } from '../graph/edges'
 import { nodeTypes } from '../graph/nodes'
@@ -107,6 +108,89 @@ export function Canvas({
   )
   const api = useFlowEngine(script, view.positions, pulseRef)
 
+  // ---- §19 camera follow: on each beat, keep the pulse's node in the middle
+  // of the screen. Beat-boundary panning (not per-frame) stays smooth and lets
+  // React Flow ease; a manual pan/zoom during flow hands control back.
+  const beatIdx = useFlowStore((s) => s.beatIdx)
+  const follow = useFlowStore((s) => s.follow)
+  const { getViewport, setCenter } = useReactFlow()
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!flowActive || !follow) return
+    const b = script.beats[beatIdx]
+    const r = b && view.positions[b.node]
+    const el = wrapRef.current
+    if (!r || !el) return
+    const vp = getViewport()
+    const W = el.clientWidth
+    const H = el.clientHeight
+    const sx = (r.x + r.w / 2) * vp.zoom + vp.x
+    const sy = (r.y + r.h / 2) * vp.zoom + vp.y
+    // recenter only when the node leaves the central window — no micro-jitter
+    const mx = W * 0.24
+    const my = H * 0.24
+    if (sx < mx || sx > W - mx || sy < my || sy > H - my) {
+      void setCenter(r.x + r.w / 2, r.y + r.h / 2, { zoom: vp.zoom, duration: 380 })
+    }
+  }, [flowActive, follow, beatIdx, script, view.positions, getViewport, setCenter])
+
+  // ---- §19 first-visit autoplay: the animation should not hide behind a
+  // button. Once per browser, a loaded model starts its replay by itself
+  // (never under reduced motion, never in compare/embed canvases).
+  const setToast = useStore((s) => s.setToast)
+  const autoTried = useRef(false)
+  useEffect(() => {
+    if (!primary || !flowEnabled || !doc?.trace.length || autoTried.current) return
+    if (!view.nodes.length) return
+    if (useFlowStore.getState().active) return
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (localStorage.getItem('mm-autoflow-done')) return
+    autoTried.current = true
+    localStorage.setItem('mm-autoflow-done', '1')
+    const t = setTimeout(() => {
+      useFlowStore.getState().activate({ auto: true })
+      setToast('Replaying the forward pass — Esc exits, F replays')
+    }, 900)
+    return () => clearTimeout(t)
+  }, [primary, flowEnabled, doc, view.nodes.length, setToast])
+
+  // §20 live generation ripple: each sampled token sweeps the visible
+  // top-of-graph chain left to right — the map breathes with the model
+  const genCount = useLiveStore((s) => s.genCount)
+  useEffect(() => {
+    if (!primary || genCount === 0) return
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const tops = view.nodes
+      .filter((n) => !n.parentId || (n.parentId && !view.nodes.find((m) => m.id === n.parentId)?.parentId))
+      .filter((n) => view.positions[n.id])
+      .sort((a, b) => view.positions[a.id].x - view.positions[b.id].x)
+      .slice(0, 14)
+    const timers = tops.map((n, i) =>
+      setTimeout(() => {
+        const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(n.id)}"]`)
+        el?.classList.add('mm-live-tick')
+        setTimeout(() => el?.classList.remove('mm-live-tick'), 260)
+      }, i * 45),
+    )
+    return () => timers.forEach(clearTimeout)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genCount, primary])
+
+  // an autoplay that reaches the end bows out by itself
+  const playing = useFlowStore((s) => s.playing)
+  useEffect(() => {
+    const f = useFlowStore.getState()
+    if (!f.active || !f.auto || playing || f.tCoarse < f.total - 1e-3 || f.total === 0) return
+    const t = setTimeout(() => {
+      const g = useFlowStore.getState()
+      if (g.active && g.auto && !g.playing) {
+        g.deactivate()
+        setToast('That was one forward pass — press F or ▶ flow to replay')
+      }
+    }, 1600)
+    return () => clearTimeout(t)
+  }, [playing, setToast])
+
   useEffect(() => {
     if (!doc || !index) return
     let alive = true
@@ -176,7 +260,7 @@ export function Canvas({
   }, [selected, select, expand, collapse, fitView, doc, api, pad, flowEnabled])
 
   return (
-    <div className="mm-canvas">
+    <div className={`mm-canvas ${flowActive && flowEnabled ? 'mm-flow-on' : ''}`} ref={wrapRef}>
       <ReactFlow
         nodes={nodes}
         edges={view.edges}
@@ -184,7 +268,13 @@ export function Canvas({
         edgeTypes={edgeTypes}
         onNodeClick={(_, n) => select(n.id)}
         onPaneClick={() => select(null)}
-        onMove={link ? (_, v) => link.group.broadcast(link.id, v) : undefined}
+        onMove={(event, v) => {
+          if (link) link.group.broadcast(link.id, v)
+          // a real user gesture during flow takes the camera back
+          if (event && useFlowStore.getState().active && useFlowStore.getState().follow) {
+            useFlowStore.getState().setFollow(false)
+          }
+        }}
         minZoom={0.08}
         maxZoom={2.5}
         fitView

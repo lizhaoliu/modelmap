@@ -22,6 +22,7 @@ CLASSICS: list[dict[str, str]] = [
     {"id": "deepseek-ai/DeepSeek-V3.1", "blurb": "671B MoE with multi-head latent attention"},
     {"id": "google-bert/bert-base-uncased", "blurb": "Encoder-only: the original bidirectional transformer"},
     {"id": "Qwen/Qwen2.5-VL-3B-Instruct", "blurb": "Vision-language: a vision tower feeding an LLM"},
+    {"id": "Maykeye/TinyLLama-v0", "blurb": "⚡ runs live in your browser — type a prompt, watch real attention"},
 ]
 CLASSIC_IDS = [g["id"] for g in CLASSICS]
 # kept for older callers

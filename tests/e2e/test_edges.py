@@ -5,7 +5,9 @@ from _common import BASE, SHOTS, check, finish
 
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
-    page = b.new_page(viewport={"width": 1440, "height": 900})
+    _ctx = b.new_context(viewport={"width": 1440, "height": 900})
+    _ctx.add_init_script("localStorage.setItem('mm-autoflow-done','1')")
+    page = _ctx.new_page()
     page.goto(f"{BASE}/m/Qwen/Qwen3-8B", wait_until="networkidle")
     page.wait_for_selector(".react-flow__node", timeout=90000); page.wait_for_timeout(600)
     ids = page.evaluate("[...document.querySelectorAll('.react-flow__edge')].map(e => e.getAttribute('data-id'))")

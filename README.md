@@ -8,7 +8,9 @@ the model on PyTorch's meta device, runs a hooked fake forward pass to capture r
 execution order and tensor shapes, and serves the result as a compact hierarchical graph.
 An 8B or 671B model costs the same few seconds; the graph ships as ~10 KB gzipped.
 
-**Live demo:** https://modelmap.cc (free-tier Cloud Run: cached models are instant; the first uncached model on a cold instance takes ~30 s)
+**Live demo:** https://modelmap.cc (free-tier Cloud Run: cached models are instant; the first uncached model on a cold instance takes ~30 s).
+Try **⚡ live**: open [TinyLLama-v0](https://modelmap.cc/m/Maykeye/TinyLLama-v0), press ⚡ live, type a prompt — real
+next-token probabilities, per-head attention and a logit lens, computed in *your* browser (9 MB download; the server still never touches weights).
 
 Design doc: [docs/design.html](docs/design.html) · API (REST · Python · CLI · MCP): [docs/API.md](docs/API.md) · Deployment: [DEPLOY.md](DEPLOY.md) · Extending: [EXTENDING.md](EXTENDING.md)
 
@@ -49,7 +51,9 @@ docker compose up --build
   the map with analytic MACs, activation and KV-cache bytes and active-params-per-token for MoE, all
   re-derived live from a what-if bar (sequence length, batch, dtype). Breadcrumb trail, semantic colors, light/dark, shareable
   URLs that reproduce the exact view, keyboard-first (`?` lists shortcuts).
-- **Flow mode** — replays the traced forward pass: an amber pulse travels the graph in real
+- **Flow mode** — the animation is the default impression: the landing page opens on a running mini-replay,
+  a first visit to any model starts its own replay (once; never under reduced motion), edges drift while it runs,
+  edge thickness encodes the tensor flowing through, and the camera follows the pulse (pan to take over). It replays the traced forward pass: an amber pulse travels the graph in real
   execution order while a HUD narrates each step with true shapes and a plain-language caption.
   Repeat stacks compress with a `layer 12 / 36` counter (~12 s for a full 8B replay). Expand a
   block and the pulse walks its internals. **Micro-views** show a beat's inner choreography —
@@ -60,6 +64,14 @@ docker compose up --build
   additions/removals get `+`/`−`; a two-column diff inspector and a summary strip (params, layers,
   heads, KV heads, hidden, ffn, vocab, context, compute/token, KV/token). Base vs fine-tune reports
   no structural change; Qwen2.5-7B vs Qwen3-8B calls out q/k norms, dropped biases, ffn, layers.
+- **⚡ Live mode** — for small models (llama-family / gpt2, single-file safetensors ≤ 700 MB) the browser downloads
+  the weights and runs *real inference* on your CPU in a Web Worker — a hand-written TS engine (RMSNorm/rotary/GQA/SwiGLU
+  and the GPT-2 stack, KV cache, two BPE tokenizer families read straight from tokenizer.json). Type a prompt: true
+  next-token probabilities, a per-head **attention heatmap** (layer slider, head picker, or click an attention block
+  on the map), a **logit lens** showing the prediction sharpen layer by layer, and streamed generation that ripples
+  through the map. TinyLLama-v0 (9 MB, ~4 ms/token) is the instant default; SmolLM2-135M and distilgpt2 also run.
+  The engine is pinned to real `transformers`/`tokenizers` outputs by fixture tests (logits 2e-4, attention 2e-5,
+  greedy token-for-token, byte-identical tokenization).
 - **Take it with you** — `export ▾` saves a PNG/SVG of the current view, a Markdown summary, a CSV module
   table (params, shapes, dtype, cost columns), the JSON document or Graphviz DOT; copies a link to the exact
   view, an `<iframe>` embed (`?embed=1` is a chrome-less mode for model cards and blogs) or the API URL.
@@ -96,6 +108,8 @@ docker compose up --build
 - [x] M6 — Compare: two models side by side, aligned by path then role, differences first
 - [x] M7 — Export & integrate: PNG/SVG/CSV/Markdown/JSON/DOT, embed mode, node links, REST + Python + CLI + MCP
 - [x] M8 — GGUF / quantized variants, local checkpoints, serving planner, interleaved repeat stacks
+- [x] M9 — alive by default: landing hero replay, first-visit autoplay, drifting edges, camera follow
+- [x] M10 — ⚡ live mode: real in-browser inference (llama + gpt2), attention heatmaps, logit lens, streamed generation
 - [x] Deployed on Google Cloud Run (free tier) at https://modelmap.cc; see DEPLOY.md
 
 ## Development
@@ -109,6 +123,8 @@ uv run pytest                         # unit tests (collapse, hub retries, serve
 uv run python tests/e2e/test_explore.py   # browser acceptance suites (need a running server
 uv run python tests/e2e/test_flow.py      # on :7860, playwright, and a Chromium build)
 uv run python tests/e2e/test_m7.py        # export / embed / planner / GGUF / local
+uv run python tests/e2e/test_m9.py        # hero replay, autoplay, camera follow
+uv run python tests/e2e/test_live.py      # ⚡ live: downloads TinyLLama-v0 and runs it
 ```
 
 Layout: `src/modelmap/` (extractor, server, CLI) · `web/` (React + React Flow + elkjs SPA,
