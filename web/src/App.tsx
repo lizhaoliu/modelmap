@@ -83,7 +83,6 @@ export default function App() {
   const errorModel = useStore((s) => s.errorModel)
   const toast = useStore((s) => s.toast)
   const loadModel = useStore((s) => s.loadModel)
-  const select = useStore((s) => s.select)
   const [compare, setCompare] = useState<[string, string] | null>(() => urlCompare())
   const [zoo, setZoo] = useState(() => urlZoo())
   const embed = isEmbed()
@@ -147,7 +146,8 @@ export default function App() {
       await loadModel(id, { push: false })
       const params = new URL(location.href).searchParams
       const sel = params.get('sel')
-      if (sel != null) select(sel)
+      // a deep link to a module opens the way to it (ancestors expanded, framed)
+      if (sel != null) useStore.getState().reveal(sel)
       if (params.get('mode') === 'flow' && (useStore.getState().doc?.trace.length ?? 0) > 0) {
         const { useFlowStore } = await import('./flow/flowStore')
         useFlowStore.getState().activate()

@@ -12,7 +12,7 @@ const CONFIG_KEYS = [
 ]
 
 /** Cost rows for a node (or the whole model when `cost` is the root). */
-function CostRows({ cost, rootCost, T, B, isRoot, kvLayers }: { cost: Cost; rootCost: Cost; T: number; B: number; isRoot?: boolean; kvLayers?: number }) {
+function CostRows({ cost, rootCost, T, B, isRoot, kvLayers, weights }: { cost: Cost; rootCost: Cost; T: number; B: number; isRoot?: boolean; kvLayers?: number; weights?: string }) {
   const tokens = Math.max(1, T * B)
   const share = (a: number, b: number) => (b > 0 ? ` · ${fmtPct(a, b)}` : '')
   return (
@@ -29,8 +29,8 @@ function CostRows({ cost, rootCost, T, B, isRoot, kvLayers }: { cost: Cost; root
             <dd>{fmtParams(cost.activeParams)}/tok</dd>
           </>
         )}
-        <dt title="parameters × bytes at the stored dtype">weights</dt>
-        <dd>{fmtBytes(cost.paramBytes)}{share(cost.paramBytes, rootCost.paramBytes)}</dd>
+        <dt title="parameters × bytes at the stored dtype (or the chosen serving precision)">weights</dt>
+        <dd>{fmtBytes(cost.paramBytes)}{weights ? <span className="mm-dim"> · {weights}</span> : null}{share(cost.paramBytes, rootCost.paramBytes)}</dd>
         <dt title="output activation bytes at T, B, dtype (summed over the subtree)">activations</dt>
         <dd>
           {fmtBytes(cost.actBytes)}
@@ -101,7 +101,7 @@ export function Inspector() {
           ))}
         </dl>
         <Treemap parent="" overview />
-        {showCost && <CostRows cost={report.root} rootCost={report.root} T={report.assumptions.T} B={report.assumptions.B} isRoot kvLayers={report.kvLayers} />}
+        {showCost && <CostRows cost={report.root} rootCost={report.root} T={report.assumptions.T} B={report.assumptions.B} isRoot kvLayers={report.kvLayers} weights={report.assumptions.weightBytes != null ? report.assumptions.weights : undefined} />}
         {showCost && report.notes.length > 0 && <p className="mm-hint">{report.notes.join(' · ')}</p>}
         {doc.notes.length > 0 && (
           <div className="mm-notes">
@@ -206,7 +206,7 @@ export function Inspector() {
       </div>
       <Treemap parent={node.id} />
       {showCost && report.byNode.get(node.id) && (
-        <CostRows cost={report.byNode.get(node.id)!} rootCost={report.root} T={report.assumptions.T} B={report.assumptions.B} />
+        <CostRows cost={report.byNode.get(node.id)!} rootCost={report.root} T={report.assumptions.T} B={report.assumptions.B} weights={report.assumptions.weightBytes != null ? report.assumptions.weights : undefined} />
       )}
       {weights.length > 0 && (
         <>

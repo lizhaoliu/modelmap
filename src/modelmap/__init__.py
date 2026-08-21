@@ -16,7 +16,7 @@ parent process depends on that); extract_graph pulls torch on first use.
 
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "Assumptions", "PlanRequest", "align", "build_index", "compute_costs", "diff_markdown",

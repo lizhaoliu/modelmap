@@ -15,9 +15,20 @@ export interface Assumptions {
   B: number // batch
   bytes: number // bytes per activation / weight element for the what-if dtype
   dtypeLabel: string
+  /** serve the weights quantized to this dtype ('int4', 'f8', …); 'stored' = as shipped */
+  weights?: string
+  /** bytes per weight element when `weights` is a quantization; undefined = stored dtype */
+  weightBytes?: number
 }
 
-export const DEFAULT_ASSUMPTIONS: Assumptions = { T: 4096, B: 1, bytes: 2, dtypeLabel: 'bf16' }
+export const DEFAULT_ASSUMPTIONS: Assumptions = { T: 4096, B: 1, bytes: 2, dtypeLabel: 'bf16', weights: 'stored' }
+
+/** bytes per weight element for a node: the what-if precision when chosen,
+ *  else the stored dtype (falling back to the activation dtype) — twin of
+ *  analytics.Assumptions.weight_bytes_of */
+export function weightBytesOf(a: Assumptions, storedDtype: string | null | undefined): number {
+  return a.weightBytes ?? bytesOf(storedDtype, a.bytes)
+}
 
 export interface Cost {
   /** weight-matmul + attention-core MACs for the whole forward at (B, T) */
@@ -85,8 +96,17 @@ function num(c: Record<string, unknown>, ...keys: string[]): number | undefined 
 }
 const prod = (xs: number[]) => xs.reduce((a, b) => a * b, 1)
 
+/** The config with the language model's numbers in reach: multimodal configs
+ *  nest hidden_size / heads / layers under text_config (twin of analytics.text_config). */
+export function textConfig(doc: GraphDoc): Record<string, unknown> {
+  const c = { ...(doc.config as Record<string, unknown>) }
+  const tc = c.text_config
+  if (tc && typeof tc === 'object') for (const [k, v] of Object.entries(tc as Record<string, unknown>)) if (!(k in c)) c[k] = v
+  return c
+}
+
 export function computeCosts(doc: GraphDoc, index: GraphIndex, a: Assumptions): CostReport {
-  const c = doc.config as Record<string, unknown>
+  const c = textConfig(doc)
   const notes: string[] = []
   const T0 = (index.dimLabels && [...index.dimLabels.entries()].find(([, l]) => l === 'seq')?.[0]) ?? 7
   const B0 = index.traceBatch ?? 1
@@ -171,7 +191,7 @@ export function computeCosts(doc: GraphDoc, index: GraphIndex, a: Assumptions): 
     // own params (non-recursive) → bytes at stored dtype, active share
     const ownParams = tiedHeads.has(n.id) ? 0 : weights.reduce((s, w) => s + prod(w), 0)
     const frac = expertFrac(n.id, weights)
-    cost.paramBytes = ownParams * bytesOf(n.dtype, a.bytes)
+    cost.paramBytes = ownParams * weightBytesOf(a, n.dtype)
     cost.activeParams = ownParams * frac
 
     // output activations
@@ -301,20 +321,27 @@ export function fmtMacs(n: number): string {
   return fmtBig(n, 'MAC')
 }
 
-export type Lens = 'none' | 'params' | 'compute' | 'memory' | 'kv'
+export type Lens = 'none' | 'params' | 'compute' | 'memory' | 'kv' | 'vram'
 export const LENSES: { id: Lens; label: string; hint: string }[] = [
   { id: 'params', label: 'params', hint: 'parameter count' },
   { id: 'compute', label: 'compute', hint: 'MACs per forward at the chosen T and B (estimate)' },
   { id: 'memory', label: 'memory', hint: 'output activation bytes at the chosen T, B and dtype' },
   { id: 'kv', label: 'kv', hint: 'KV-cache bytes per token' },
+  { id: 'vram', label: 'vram', hint: 'GPU memory to serve: weights at the chosen precision + the KV cache at this context and batch — watch attention grow with context' },
 ]
-export function lensValue(lens: Lens, node: GNode, cost: Cost | undefined): number {
+/** what each module costs in GPU memory at serving time: its weights plus
+ *  the KV cache its attention layers hold for T × B tokens */
+export function vramBytes(cost: Cost | undefined, a: Assumptions): number {
+  return cost ? cost.paramBytes + cost.kvPerToken * a.T * a.B : 0
+}
+export function lensValue(lens: Lens, node: GNode, cost: Cost | undefined, a?: Assumptions): number {
   if (!cost) return lens === 'params' ? node.params : 0
   switch (lens) {
     case 'params': return node.params
     case 'compute': return cost.macs
     case 'memory': return cost.actBytes
     case 'kv': return cost.kvPerToken
+    case 'vram': return vramBytes(cost, a ?? DEFAULT_ASSUMPTIONS)
     default: return node.params
   }
 }
@@ -322,6 +349,7 @@ export function fmtLens(lens: Lens, v: number): string {
   switch (lens) {
     case 'compute': return fmtMacs(v)
     case 'memory': return fmtBytes(v)
+    case 'vram': return fmtBytes(v)
     case 'kv': return v ? `${fmtBytes(v)}/tok` : '—'
     default: return fmtBig(v)
   }

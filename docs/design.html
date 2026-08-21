@@ -313,7 +313,7 @@ footer {
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">Design doc · v1.2 · M1–M6 shipped 2026-08-17</span>
+  <span class="eyebrow">Design doc · v1.6 · M1–M18 shipped 2026-08-21</span>
   <h1>modelmap</h1>
   <p class="tagline">Paste a Hugging Face model id. Get a <strong>living map of the network</strong> — explorable down to every projection, animated so you can watch a token flow from embedding to logits.</p>
 
@@ -406,6 +406,10 @@ footer {
     <li><a href="#m12"><span class="no">22</span>M12 · Training planner &amp; speed</a></li>
     <li><a href="#m13"><span class="no">23</span>M13 · The architecture zoo</a></li>
     <li><a href="#m14"><span class="no">24</span>M14 · Live interpretability</a></li>
+    <li><a href="#m15"><span class="no">25</span>M15 · Links that unfurl</a></li>
+    <li><a href="#m16"><span class="no">26</span>M16 · The planner on the map</a></li>
+    <li><a href="#m17"><span class="no">27</span>M17 · Takeaways</a></li>
+    <li><a href="#m18"><span class="no">28</span>M18 · Finding things</a></li>
   </ul>
 </section>
 
@@ -865,6 +869,26 @@ footer {
       <p>Head ablation with Δ display and exact restore, per-head pattern tags, qwen2/qwen3 engines (§24).</p>
       <p class="accept">accepts when <b>silencing a head shifts the distribution and restore is bit-exact</b>.</p>
     </div></div>
+    <div class="ms"><div class="tag">M15</div><div>
+      <h3>Links that unfurl</h3>
+      <p>Server-injected og:/twitter: tags per URL; 1200×630 social cards drawn from the graph; README badge (§25).</p>
+      <p class="accept">accepts when <b>a shared /m/ link previews the model's own architecture card</b>.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M16</div><div>
+      <h3>The planner on the map</h3>
+      <p>vram lens (weights + KV per module), context/precision/GPU strip with a verdict, weight-precision toggle on every surface, "will it fit on &lt;GPU&gt;?" landing (§26).</p>
+      <p class="accept">accepts when <b>dragging context to 128k visibly makes the cache outweigh the weights and flips the verdict</b>.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M17</div><div>
+      <h3>Takeaways</h3>
+      <p>Derived, quantified sentences on compare, zoo lineages, diff, API and MCP; per-model recipe (§27).</p>
+      <p class="accept">accepts when <b>Qwen2.5→Qwen3 reads "GQA 8/32 vs 4/28 → KV cache 2.6× larger" without a human writing it</b>.</p>
+    </div></div>
+    <div class="ms"><div class="tag">M18</div><div>
+      <h3>Finding things</h3>
+      <p>Node finder (/), revealing deep links, double-click-to-open repaired, VLM cost fix (§28).</p>
+      <p class="accept">accepts when <b>typing k_norm + Enter lands on the module in an 80-layer model</b>.</p>
+    </div></div>
   </div>
 </section>
 
@@ -1154,8 +1178,58 @@ footer {
   <p class="accept">accepts when <b>silencing a head visibly shifts the next-token distribution and restoring recovers the exact baseline</b>, and the qwen fixtures match transformers within f32 tolerance.</p>
 </section>
 
+<section id="m15">
+  <span class="eyebrow"><span class="no">25</span> M15 · Links that unfurl</span>
+  <h2>A shared link should look like the model</h2>
+  <p>An outside review put it plainly: sharing meant posting a bare domain. Crawlers never run JavaScript, so the unfurl has to be decided on the server.</p>
+  <ul>
+    <li><strong>Meta tags per URL.</strong> The SPA shell is no longer a static file: <code>index.html</code> is served through <code>inject_meta()</code>, which writes <code>og:title / og:description / og:image / og:url</code>, the Twitter card tags, a <code>&lt;title&gt;</code> and a canonical link for the page kind — model (<code>/m/</code>), family (<code>/arch/</code>), compare (<code>/compare/A...B</code>), catalog, landing. View state (<code>lens</code>, <code>T</code>, <code>sel</code>) stays out of the canonical; model ids are HTML-escaped and URL-encoded. The description upgrades itself with the cached summary ("8.19B params · Qwen3ForCausalLM") when the model is mapped.</li>
+    <li><strong>Cards drawn from the graph.</strong> <code>og.py</code> renders a 1200×630 PNG with Pillow (fonts ship with the package — OFL Plex Sans and Bricolage — so a fontless container draws the same card): the model id, its headline numbers, the zoo's structural tags, and a miniature of the architecture — top-level modules in execution order with the repeated block opened to show attention / MLP / MoE proportions, nested towers (VLM vision → blocks ×32) recognised, T5-style wrappers opened, numbered sublayers named by kind. Compare cards carry the takeaways (§27); family cards the lineage with active-parameter notes. Cards are cache-only: a crawler will not wait for an extraction, so an unmapped model unfurls into the generic card, uncached, until someone opens the page. Renders are memoised on disk by content hash next to the graph cache.</li>
+    <li><strong>README badge.</strong> <code>/badge/&lt;id&gt;.svg</code> is a shields-style badge — <code>modelmap | 8.19B · GQA 4× · 36 layers</code> — and the export menu copies the Markdown that links it to the map: the cheap, realistic version of "get into Hugging Face" (model authors paste it; we cannot add buttons to HF's own pages).</li>
+    <li><code>MODELMAP_PUBLIC_URL</code> lets a self-hoster point the absolute URLs (and the sitemap) at their origin.</li>
+  </ul>
+  <p class="accept">accepts when <b>curl of any /m/, /arch/ or /compare/ URL returns the right og:image and the PNG behind it is a real 1200×630 card</b> (pytest + e2e).</p>
+</section>
+
+<section id="m16">
+  <span class="eyebrow"><span class="no">26</span> M16 · The planner on the map</span>
+  <h2>From exhibit to answer</h2>
+  <p>The fit planner (§17, §22) already answered "will it run on my GPU?" — behind a small button, as a table. The one idea in the review that only modelmap can act on: <em>paint the answer onto the graph</em>, so you can literally see the KV cache exceed the weights at 128k.</p>
+  <ul>
+    <li><strong>The vram lens.</strong> A fifth lens whose value per module is <em>weights at the chosen precision + the KV cache its attention holds for T × B tokens</em>. Heat and badges re-derive as the knobs move: slide context and the attention blocks glow while the MLPs sit still; hover a badge for the split ("weights 20 MB + KV cache 512 MB at T 131,072"). The treemap and SVG export follow the lens.</li>
+    <li><strong>The strip.</strong> While the lens is on, a strip above the map holds exactly the inputs that move the picture — context slider (512 → 1M), batch, <em>serve weights as</em> (as stored / bf16 / fp8 / int8 / int4), GPU preset, headroom — and the verdict: weights + KV + activations stacked against one card's usable memory, "the cache outweighs the model" when it does, and the smallest tensor-parallel group that fits (<code>fits on 1× RTX 4090 · up to 45,509 tokens</code> / <code>needs 2× RTX 4090</code>). The popover planner and the strip share one store, so they never disagree.</li>
+    <li><strong>Precision is a first-class assumption.</strong> <code>Assumptions.weights</code> (Python) / <code>weightBytes</code> (TS) re-price every weight tensor for a quantized deployment while activations and KV keep the activation dtype; <code>--weights int4</code> on <code>cost / plan / dump</code>, <code>weights=</code> on <code>/api/summary</code>, <code>/api/plan</code>, <code>/api/export</code>, and on the MCP tools; the roofline decode estimate streams the smaller weights, so "Qwen3-8B at int4 on a 4090 ≈ 129 tok/s" falls out. Twin tests pin the same numbers (16.4 GB → 4.1 GB).</li>
+    <li><strong>The front door.</strong> The landing now asks <em>will it fit on &lt;GPU&gt;?</em> next to the search, with the GPU remembered, and every gallery card has a <code>fit?</code> action that opens straight into the lens. Retention comes from a question people re-ask every time they change model, GPU or context — not from a diagram.</li>
+    <li><strong>A bug this surfaced.</strong> Multimodal configs nest the language model under <code>text_config</code>; both cost engines read <code>num_key_value_heads</code> from the top level and reported <em>zero</em> KV cache and attention compute for every VLM. <code>text_config()</code> / <code>textConfig()</code> now fall through in Python and TypeScript alike (pinned by a new Qwen2.5-VL fixture), which also fixed the dim labels and the planner for VLMs.</li>
+  </ul>
+  <p class="accept">accepts when <b>on Qwen3-8B the strip says "fits on 1× RTX 4090" at 4k, the legend says the cache outweighs the model at 128k and the verdict becomes "needs 2×", and switching weights to int4 re-prices the nodes live with <code>w=int4</code> in the URL</b>.</p>
+</section>
+
+<section id="m17">
+  <span class="eyebrow"><span class="no">27</span> M17 · Takeaways</span>
+  <h2>Diffs emit conclusions, not just two graphs</h2>
+  <p>Compare (§15) aligned two module trees and listed what changed; the interpretation was the reader's job. M17 writes the sentences a reviewer would.</p>
+  <ul>
+    <li><strong>Profile, then compare.</strong> <code>insights.profile(doc)</code> reads the recipe off a graph document — attention kind (MHA / GQA / MQA / MLA) with KV bytes per token from the cost engine, MLP shape (a gate projection means the 3-matrix SwiGLU block; fused experts are recognised by their 3-D weight names), positional scheme (a rotary module, a learned table, T5's relative bias, ALiBi), RoPE base and scaling (including transformers 5's <code>rope_parameters</code>), norm family, per-head q/k norms, projection biases, tying, MoE routing (experts, top-k, shared), context, vocab, vision tower, encoder–decoder. <code>insights(a, b)</code> turns each difference into one quantified sentence with a topic key and the raw values — "Attention: GQA (8 KV heads for 32 query heads) vs GQA (4 KV heads for 28 query heads) → KV cache per token 144 KB vs 56.0 KB (2.6× larger)", "B is a mixture of experts: 8 of 128 experts run per token, so 3.35B of its 30.53B parameters are active — about 11% of the weights per token" — ordered headline size → structural story → bookkeeping.</li>
+    <li><strong>One wording everywhere.</strong> The web never re-derives them: <code>/api/compare</code> returns <code>insights</code>, the compare page leads with them (four, then "N more"), the zoo's lineage arrows show the top three under the counts, the markdown diff (CLI, MCP) opens with a <em>Takeaways</em> section, and the compare social card carries them. Each model also gets a <code>recipe</code> line (<code>MoE 8/256 +1 shared · MLA · gated SiLU MLP · RoPE · RMSNorm</code>) in <code>/api/summary</code>, the catalog and the family cards.</li>
+    <li>Tests pin the sentences for Qwen2.5→Qwen3, GPT-2→Qwen3 (MHA→GQA, learned→RoPE, LayerNorm→RMSNorm, untied head), dense→MoE, Mixtral→DeepSeek (routing change, GQA→MLA), identical pairs (empty) and both directions.</li>
+  </ul>
+  <p class="accept">accepts when <b>/compare/Qwen/Qwen2.5-7B...Qwen/Qwen3-8B opens with the KV-cache consequence spelled out and the same sentence appears in <code>modelmap diff</code> and the MCP tool</b>.</p>
+</section>
+
+<section id="m18">
+  <span class="eyebrow"><span class="no">28</span> M18 · Finding things</span>
+  <h2>Twelve layers is browsable; eighty is not</h2>
+  <ul>
+    <li><strong>Node finder.</strong> <code>/</code> opens a search over the open graph's modules by path or class (<code>k_norm</code>, <code>layers.17</code>, <code>RMSNorm</code>; leaf-name matches rank first, shallow ties first); Enter <em>reveals</em> the hit — every ancestor opened under the render budget, the node selected and framed. The same <code>reveal()</code> now serves deep links: <code>?sel=model.layers.0.mlp.down_proj</code> used to select an invisible node.</li>
+    <li><strong>Double-click was dead.</strong> React Flow's d3-zoom registers a <code>dblclick.zoom</code> handler on the renderer that calls <code>stopImmediatePropagation()</code> before React's root listener sees the event — so double-click-to-open, which the help overlay advertised, had never worked on any node. <code>zoomOnDoubleClick={false}</code> fixes it (double-click means "open" here, never "zoom"), and a leaf now says it is one instead of ignoring you. The reviewer's "double-click sometimes no-ops" was generous.</li>
+    <li>Breadcrumb, minimap, fit-to-view-on-load and window-level shortcuts were already there; the review was written against an older build, and the rest of its P2 list is verified present.</li>
+  </ul>
+  <p class="accept">accepts when <b>"/", "k_norm", Enter selects <code>model.layers.0.self_attn.k_norm</code> with the breadcrumb showing the path, and double-clicking the layer stack opens it</b>.</p>
+</section>
+
 <footer>
-  modelmap · design doc v1.5 · M1–M14 shipped
+  modelmap · design doc v1.6 · M1–M18 shipped
 </footer>
 
 </div>

@@ -46,6 +46,7 @@ Rule of thumb: **1 GB RAM per worker + 0.5 GB headroom.** A 1 GB box runs
 | `HF_TOKEN` | unset | **do not set on a public deployment** — visitors send their own token per request (`X-HF-Token`), which bypasses the shared cache in both directions |
 | `MODELMAP_ALLOW_LOCAL` | `0` | accept `local:/path` ids (read checkpoints from the server's disk). `modelmap serve` on loopback turns it on automatically (`--no-local` to refuse); **never set it on a public deployment** — it would let visitors map any readable file on the host |
 | `MODELMAP_TRUST_REMOTE_CODE` | `0` | let extraction execute repos' own modeling Python (`serve --trust-remote-code`). Arbitrary code execution by construction — **never on a public deployment**; the drag-and-drop graph viewer is the hosted answer for such repos |
+| `MODELMAP_PUBLIC_URL` | `https://modelmap.cc` | absolute origin used in `og:url` / `og:image` tags, the README badge links and the sitemap — set it to your own host when self-hosting |
 
 ## Public API surface
 

@@ -6,17 +6,24 @@ import { useStore } from '../store'
 import { stackTitle, type MMNode } from './layout'
 import type { GNode } from '../types'
 
-/** Lens-aware badge text and heat (0–100) for a node. */
-function useLens(g: GNode): { badge: string | null; heat: number } {
+/** Lens-aware badge text, heat (0–100) and hover detail for a node. */
+function useLens(g: GNode): { badge: string | null; heat: number; title?: string } {
   const lens = useCostStore((s) => s.lens)
   const report = useCostStore((s) => s.report)
+  const a = useCostStore((s) => s.assumptions)
   const total = useStore((s) => s.doc?.params_total ?? 0)
   if (lens === 'none') return { badge: g.params > 0 ? fmtParams(g.params) : null, heat: 0 }
-  const v = lensValue(lens, g, report?.byNode.get(g.id))
-  const rootV = lens === 'params' ? total : report ? lensValue(lens, g, report.root) : 0
+  const cost = report?.byNode.get(g.id)
+  const v = lensValue(lens, g, cost, a)
+  const rootV = lens === 'params' ? total : report ? lensValue(lens, g, report.root, a) : 0
   const share = rootV > 0 ? Math.min(1, v / rootV) : 0
   const heat = v > 0 ? Math.min(85, 6 + 80 * Math.sqrt(share)) : 0
-  return { badge: v > 0 ? fmtLens(lens, v) : null, heat }
+  let title: string | undefined
+  if (lens === 'vram' && cost && v > 0) {
+    const kv = cost.kvPerToken * a.T * a.B
+    title = `weights ${fmtLens('vram', cost.paramBytes)}${kv ? ` + KV cache ${fmtLens('vram', kv)} at T ${a.T.toLocaleString()}${a.B > 1 ? ` × B ${a.B}` : ''}` : ''}`
+  }
+  return { badge: v > 0 ? fmtLens(lens, v) : null, heat, title }
 }
 
 function handles(dir: 'h' | 'v') {
@@ -42,8 +49,11 @@ function handles(dir: 'h' | 'v') {
 export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
   const toggleExpand = useStore((s) => s.toggleExpand)
   const expandMany = useStore((s) => s.expandMany)
+  const setToast = useStore((s) => s.setToast)
+  // a leaf has nothing to open: say so instead of silently ignoring the double-click
+  const leafHint = () => setToast(`${leafName(g.id)} is a leaf module — nothing inside to open. Its weights and shapes are in the inspector.`)
   const { g, repeat, stackOf, stackTotal, stackRuns, stackLoose, hasChildren, dir } = data
-  const { badge, heat } = useLens(g)
+  const { badge, heat, title } = useLens(g)
   const diff = useStore((s) => s.diff?.get(g.id))
   const cls = [
     'mm-node',
@@ -65,7 +75,7 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
   }
 
   return (
-    <div className={cls} onDoubleClick={hasChildren ? open : undefined} style={{ '--heat': heat } as React.CSSProperties}>
+    <div className={cls} onDoubleClick={hasChildren ? open : leafHint} style={{ '--heat': heat } as React.CSSProperties}>
       {handles(dir)}
       <div className="mm-row">
         {(diff === 'added' || diff === 'removed') && <span className="mm-diffchip">{diff === 'added' ? '+' : '−'}</span>}
@@ -102,7 +112,7 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
       </div>
       <div className="mm-row mm-row-sub">
         <span className="mm-cls">{g.cls === '?' ? g.kind : g.cls}</span>
-        {badge && <span className="mm-params">{badge}</span>}
+        {badge && <span className="mm-params" title={title}>{badge}</span>}
       </div>
     </div>
   )
@@ -112,7 +122,7 @@ export function ModuleNode({ data, selected }: NodeProps<MMNode>) {
 export function ContainerNode({ data, selected }: NodeProps<MMNode>) {
   const toggleExpand = useStore((s) => s.toggleExpand)
   const { g, repeat, stackOf, stackTotal, stackRuns, stackLoose, dir } = data
-  const { badge, heat } = useLens(g)
+  const { badge, heat, title } = useLens(g)
   const diff = useStore((s) => s.diff?.get(g.id))
   const cls = [
     'mm-container',
@@ -151,7 +161,7 @@ export function ContainerNode({ data, selected }: NodeProps<MMNode>) {
             ×{stackTotal ?? stackOf.count}
           </span>
         )}
-        {badge && <span className="mm-params">{badge}</span>}
+        {badge && <span className="mm-params" title={title}>{badge}</span>}
       </div>
     </div>
   )

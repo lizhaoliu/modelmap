@@ -57,6 +57,19 @@ def _num(c: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
+def text_config(doc: dict) -> dict[str, Any]:
+    """The config with the language model's numbers in reach: multimodal
+    configs (Qwen2.5-VL, Llama-4, Gemma-3, …) nest hidden_size / heads /
+    layers under text_config — every analytic that reads them goes through
+    here (twin of cost.ts textConfig)."""
+    c = dict(doc.get("config") or {})
+    tc = c.get("text_config")
+    if isinstance(tc, dict):
+        for k, v in tc.items():
+            c.setdefault(k, v)
+    return c
+
+
 def _prod(xs: list[int]) -> int:
     out = 1
     for x in xs:
@@ -79,7 +92,7 @@ class Index:
 def dim_labels(doc: dict) -> dict[int, str]:
     """Value-matched semantic labels for tensor dims (twin of types.ts
     buildDimLabels): a value claimed by two labels is left unlabeled."""
-    c = doc.get("config") or {}
+    c = text_config(doc)
 
     def num(k: str) -> float | None:
         v = c.get(k)
@@ -175,10 +188,24 @@ class Assumptions:
     T: int = 4096
     B: int = 1
     dtype: str = "bf16"
+    # serve the weights quantized to this dtype (int4, f8, …); None = as stored
+    weights: str | None = None
 
     @property
     def bytes(self) -> float:
         return WHATIF_DTYPES.get(self.dtype, DTYPE_BYTES.get(self.dtype, 2))
+
+    @property
+    def weight_bytes(self) -> float | None:
+        if not self.weights or self.weights == "stored":
+            return None
+        return WHATIF_DTYPES.get(self.weights, DTYPE_BYTES.get(self.weights))
+
+    def weight_bytes_of(self, stored_dtype: str | None) -> float:
+        """Bytes per weight element: the what-if precision when one is chosen,
+        else the stored dtype (falling back to the activation dtype)."""
+        wb = self.weight_bytes
+        return wb if wb is not None else bytes_of(stored_dtype, self.bytes)
 
 
 @dataclass
@@ -218,7 +245,7 @@ class CostReport:
 def compute_costs(doc: dict, index: Index | None = None, a: Assumptions | None = None) -> CostReport:
     index = index or build_index(doc)
     a = a or Assumptions()
-    c = doc.get("config") or {}
+    c = text_config(doc)
     notes: list[str] = []
     T0 = index.trace_seq if index.trace_seq is not None else 7
     B0 = index.trace_batch if index.trace_batch is not None else 1
@@ -304,7 +331,7 @@ def compute_costs(doc: dict, index: Index | None = None, a: Assumptions | None =
         cost = Cost(max_act_node=nid)
         own_params = 0 if nid in tied_heads else sum(_prod(w) for w in weights)
         frac = expert_frac(nid, weights)
-        cost.param_bytes = own_params * bytes_of(n.get("dtype"), a.bytes)
+        cost.param_bytes = own_params * a.weight_bytes_of(n.get("dtype"))
         cost.active_params = own_params * frac
         outs = (io or {}).get("outputs") or []
         if outs:
@@ -389,13 +416,22 @@ def compute_costs(doc: dict, index: Index | None = None, a: Assumptions | None =
 # --------------------------------------------------------------- summary
 
 
+def _recipe(doc: dict) -> list[str]:
+    from modelmap.insights import profile, recipe  # lazy: insights imports analytics
+
+    try:
+        return recipe(profile(doc))
+    except Exception:  # a recipe is a nicety; never fail a summary for it
+        return []
+
+
 def summarize(doc: dict, a: Assumptions | None = None) -> dict[str, Any]:
     """The headline numbers for a model: what `modelmap cost`, /api/summary
     and the MCP describe_model tool return."""
     a = a or Assumptions()
     index = build_index(doc)
     rep = compute_costs(doc, index, a)
-    c = doc.get("config") or {}
+    c = text_config(doc)
     layers = _num(c, "num_hidden_layers", "n_layer")
     tokens = max(1, a.T * a.B)
     root = rep.root
@@ -411,6 +447,7 @@ def summarize(doc: dict, a: Assumptions | None = None) -> dict[str, Any]:
         "revision": doc.get("revision"),
         "architecture": doc.get("architecture"),
         "model_type": c.get("model_type"),
+        "recipe": _recipe(doc),
         "fidelity": doc.get("fidelity"),
         "variant": doc.get("variant"),
         "variants": doc.get("variants") or [],
@@ -503,6 +540,7 @@ class PlanRequest:
     T: int = 4096
     B: int = 1
     dtype: str = "bf16"
+    weights: str | None = None  # serve weights quantized to this dtype; None = stored
     # fraction of memory kept free for framework overhead / fragmentation / workspace
     headroom: float = 0.10
 
@@ -549,9 +587,9 @@ def plan_serving(doc: dict, req: PlanRequest | None = None) -> Plan:
     req = req or PlanRequest()
     notes: list[str] = []
     index = build_index(doc)
-    a = Assumptions(T=req.T, B=req.B, dtype=req.dtype)
+    a = Assumptions(T=req.T, B=req.B, dtype=req.dtype, weights=req.weights)
     rep = compute_costs(doc, index, a)
-    c = doc.get("config") or {}
+    c = text_config(doc)
     tp, pp = max(1, req.tp), max(1, req.pp)
     if tp * pp != req.gpus:
         notes.append(f"tp × pp = {tp * pp} ≠ gpus = {req.gpus}; planning for {tp * pp} GPUs")
@@ -660,7 +698,8 @@ def plan_serving(doc: dict, req: PlanRequest | None = None) -> Plan:
         notes.append("GPU memory is 0 — unified-memory devices: compare totals against system RAM")
     notes.append(
         "activations = largest single non-logits activation at T, B (prefill peak; decode needs far less); "
-        "weights at stored dtypes; KV at the activation dtype; no framework workspace beyond the headroom"
+        + (f"weights quantized to {req.weights}" if a.weight_bytes is not None else "weights at stored dtypes")
+        + "; KV at the activation dtype; no framework workspace beyond the headroom"
     )
     return Plan(
         request=req,
@@ -808,7 +847,7 @@ def plan_training(doc: dict, req: TrainRequest | None = None) -> TrainPlan:
     index = build_index(doc)
     a = Assumptions(T=req.T, B=req.B, dtype="bf16")
     rep = compute_costs(doc, index, a)
-    c = doc.get("config") or {}
+    c = text_config(doc)
     params = float(doc.get("params_total") or 0)
     gpus = max(1, req.gpus)
     cap = req.gpu_memory_gb * 2**30 * (1 - req.headroom)
@@ -919,7 +958,9 @@ class Throughput:
         return asdict(self)
 
 
-def estimate_throughput(doc: dict, gpu: str, *, tp: int = 1, T: int = 4096, B: int = 1, dtype: str = "bf16") -> Throughput | None:
+def estimate_throughput(
+    doc: dict, gpu: str, *, tp: int = 1, T: int = 4096, B: int = 1, dtype: str = "bf16", weights: str | None = None,
+) -> Throughput | None:
     """Roofline speed estimate on a named GPU preset: prefill is compute-bound
     (MACs vs peak FLOPs at PREFILL_MFU); decode is bandwidth-bound (active
     weight bytes + the KV cache read every token, vs peak bandwidth at
@@ -928,7 +969,7 @@ def estimate_throughput(doc: dict, gpu: str, *, tp: int = 1, T: int = 4096, B: i
     if not spec:
         return None
     index = build_index(doc)
-    rep = compute_costs(doc, index, Assumptions(T=T, B=B, dtype=dtype))
+    rep = compute_costs(doc, index, Assumptions(T=T, B=B, dtype=dtype, weights=weights))
     tokens = max(1, T * B)
     macs_tok = rep.root.macs / tokens
     params = float(doc.get("params_total") or 1)

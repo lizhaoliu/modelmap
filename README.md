@@ -1,7 +1,8 @@
 # modelmap
 
 Paste a Hugging Face model id. Get a living map of the network — explorable down to
-every projection, animated so you can watch a token flow from embedding to logits.
+every projection, animated so you can watch a token flow from embedding to logits — and
+the answer to the question you re-ask every week: **will it fit on my GPU?**
 
 **No weights are ever downloaded.** modelmap fetches `config.json` (~2 KB), instantiates
 the model on PyTorch's meta device, runs a hooked fake forward pass to capture real
@@ -47,7 +48,7 @@ docker compose up --build
   node for class, params (absolute + share), dtype, weight shapes with inline dim labels
   (`[151936 vocab × 4096 hidden]`), traced I/O shapes (`[1 batch × 7 seq × 4096 hidden]`), and a
   parameter treemap of its children, the module's own attributes (`in_features`, `eps`, kernel…)
-  and a link to its defining source line. A **cost lens** (`params · compute · memory · kv`) re-encodes
+  and a link to its defining source line. A **cost lens** (`params · compute · memory · kv · vram`) re-encodes
   the map with analytic MACs, activation and KV-cache bytes and active-params-per-token for MoE, all
   re-derived live from a what-if bar (sequence length, batch, dtype). Breadcrumb trail, semantic colors, light/dark, shareable
   URLs that reproduce the exact view, keyboard-first (`?` lists shortcuts).
@@ -103,6 +104,27 @@ docker compose up --build
 - **Live interpretability** — in ⚡ live mode, **silence any attention head** and watch the next-token
   probabilities shift (▲/▼ deltas vs baseline; restore is bit-exact), per-head pattern tags (`prev-token`,
   `sink`, `broad`), and qwen2/qwen3 checkpoints join llama/gpt2 in the in-browser engine.
+- **The planner, on the map** — the `vram` lens paints serving memory onto the graph: every module shows its
+  weights plus the KV cache its attention holds at the chosen context and batch, and a strip above the map holds
+  the knobs — context slider, batch, **weight precision** (as stored / bf16 / fp8 / int8 / int4), GPU preset, headroom —
+  with the verdict: weights + KV + activations stacked against the card (`fits on 1× RTX 4090 · up to 45k tokens`,
+  `needs 2× (tensor-parallel)`). Drag context to 128k and watch the cache outweigh the model. The landing page
+  opens with *will it fit on &lt;GPU&gt;?* and every gallery card has a `fit?` button. The precision toggle is the same
+  `--weights int4` on the CLI, `weights=int4` on `/api/plan` and `/api/summary`, and `weights` on the MCP tools.
+- **Takeaways** — compare pages, the zoo's lineage arrows, `modelmap diff`, `/api/compare` and the MCP tool all
+  lead with derived, quantified sentences instead of leaving the interpretation to you: *“Attention: GQA (8 KV heads
+  for 32 query heads) vs GQA (4 for 28) → KV cache per token 144 KB vs 56 KB (2.6× larger)”*, *“B is a mixture of
+  experts: 8 of 128 experts run per token, so 3.35B of its 30.5B parameters are active”*, MLP shape (gated SwiGLU
+  vs 2-matrix GELU), positions (RoPE vs learned vs relative bias, base and scaling), norms, q/k norm, biases, tying,
+  context, vocab. Every model also gets a one-line **recipe** (`MoE 8/256 +1 shared · MLA · gated SiLU MLP · RoPE · RMSNorm`).
+- **Links that unfurl** — every page carries server-rendered `og:`/`twitter:` tags and a 1200×630 **social card**
+  drawn from the graph itself (`/og/m/<id>.png`: headline numbers, structural tags and a miniature of the
+  architecture; compare cards carry the takeaways; family cards the lineage), so a shared link shows the model, not
+  a bare domain. `/badge/<id>.svg` is a README badge (`modelmap | 8.19B · GQA 4× · 36 layers`) — *copy README badge*
+  is in the export menu.
+- **Find anything** — press `/` on a map to search modules by path or class (`k_norm`, `layers.17`, `RMSNorm`);
+  Enter opens every ancestor and frames the module. Deep links (`?sel=model.layers.0.mlp.down_proj`) do the same.
+  Double-click opens a container (and a leaf now tells you it is one).
 - **Any public repo.** Text LLMs (dense and MoE), encoder-decoders (T5/BART), speech (Whisper),
   BERT, ViT, vision-language and audio-language (the encoder tower and
   its projector are traced too — on the meta device when possible, otherwise via a depth-1 CPU
@@ -129,6 +151,10 @@ docker compose up --build
 - [x] M12 — fine-tuning planner (LoRA/QLoRA/full, ZeRO) + roofline throughput estimates per GPU
 - [x] M13 — architecture zoo: /models catalog with structural tags, /arch family pages with live lineage diffs
 - [x] M14 — live interpretability: head ablation with Δ display, head pattern tags, qwen2/qwen3 engines
+- [x] M15 — social cards + per-URL meta tags, README badge
+- [x] M16 — the planner on the map: vram lens, weight-precision toggle (UI · CLI · API · MCP), "will it fit on <GPU>?" landing
+- [x] M17 — takeaways: derived architecture insights on compare, zoo lineages, diff, API and MCP; per-model recipe
+- [x] M18 — node finder (`/`), revealing deep links, double-click-to-open fixed, VLM cost fix (text_config)
 - [x] Deployed on Google Cloud Run (free tier) at https://modelmap.cc; see DEPLOY.md
 
 ## Development

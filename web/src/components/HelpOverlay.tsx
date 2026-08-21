@@ -1,5 +1,6 @@
 const ROWS: [string, string][] = [
   ['⌘K / Ctrl-K', 'search models (or type a full id)'],
+  ['/', 'find a module in this graph by path or class — Enter reveals it'],
   ['click / double-click', 'inspect a module / open it'],
   ['E · C', 'expand · collapse the selected module'],
   ['0', 'fit the whole graph in view'],
@@ -10,7 +11,8 @@ const ROWS: [string, string][] = [
   ['?', 'this help'],
   ['⚡ live', 'run small models in your browser: real attention, logit lens, generation'],
   ['export ▾', 'PNG / SVG of this view · Markdown · CSV · JSON · DOT · embed code'],
-  ['fit?', 'serving planner: GPUs × memory, TP / PP split, max context'],
+  ['fit?', 'serving + fine-tuning planner: GPUs × memory, TP / PP split, max context'],
+  ['vram lens', 'the planner on the map: weights + KV per module, context / precision / GPU knobs, fits?'],
 ]
 
 export function HelpOverlay({ onClose }: { onClose: () => void }) {

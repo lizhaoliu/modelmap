@@ -41,6 +41,9 @@ class Settings:
     # `modelmap serve --trust-remote-code` on your own machine only; the
     # hosted deployment must never set it
     trust_remote_code: bool = field(default_factory=lambda: _bool("MODELMAP_TRUST_REMOTE_CODE", False))
+    # absolute origin used in og:url / og:image and the sitemap (self-hosters
+    # set MODELMAP_PUBLIC_URL=https://maps.example.com); empty → modelmap.cc
+    public_url: str = field(default_factory=lambda: os.environ.get("MODELMAP_PUBLIC_URL", "").rstrip("/"))
 
 
 settings = Settings()

@@ -43,6 +43,7 @@ def _add_assumptions(p: argparse.ArgumentParser) -> None:
     p.add_argument("-T", "--seq", type=int, default=4096, help="sequence length for cost estimates (default 4096)")
     p.add_argument("-B", "--batch", type=int, default=1, help="batch size (default 1)")
     p.add_argument("--dtype", default="bf16", choices=_DTYPES, help="activation dtype (default bf16)")
+    p.add_argument("--weights", default=None, choices=["stored", *_DTYPES], help="serve weights quantized to this dtype (default: as stored)")
     p.add_argument("--token", help="HF token for gated/private repos")
     p.add_argument("--refresh", action="store_true", help="ignore the disk cache and re-extract")
 
@@ -228,7 +229,8 @@ def _load(model_id: str, *, token: str | None = None, refresh: bool = False, rev
 def _assumptions(args):
     from modelmap.analytics import Assumptions
 
-    return Assumptions(T=args.seq, B=args.batch, dtype=args.dtype)
+    w = getattr(args, "weights", None)
+    return Assumptions(T=args.seq, B=args.batch, dtype=args.dtype, weights=None if w in (None, "stored") else w)
 
 
 def _dump(args) -> None:
@@ -280,7 +282,7 @@ def _cost(args) -> None:
         print("  config        " + "  ".join(f"{k}={cfg[k]}" for k in keys))
     print(f"  assumptions   T={a['T']:,}  B={a['B']}  dtype={a['dtype']}")
     print(f"  compute       {fmt_big(c['macs_per_token'], 'MAC')}/token  ·  {fmt_big(c['macs_per_forward'], 'MAC')} per forward")
-    print(f"  weights       {fmt_bytes(c['weight_bytes'])} at stored dtypes")
+    print(f"  weights       {fmt_bytes(c['weight_bytes'])} at {a.get('weights') or 'stored dtypes'}")
     print(f"  activations   {fmt_bytes(c['activation_bytes'])} summed  ·  largest {fmt_bytes(c['largest_activation_bytes'])} ({c['largest_activation_node'] or '—'})")
     if c["kv_bytes_per_token"]:
         print(f"  kv cache      {fmt_bytes(c['kv_bytes_per_token'])}/token  ·  {fmt_bytes(c['kv_bytes_at_T'])} at T  ({c['kv_layers']} layers)")
@@ -296,7 +298,8 @@ def _plan(args) -> None:
             print(f"{name:<16} {spec['tflops']:>6.0f} TFLOPs bf16   {spec['bw']:>5.0f} GB/s")
         return
     doc = _load(args.model_id, token=args.token, refresh=args.refresh)
-    req = PlanRequest(gpus=args.gpus, gpu_memory_gb=args.gpu_memory, tp=args.tp, pp=args.pp, T=args.seq, B=args.batch, dtype=args.dtype, headroom=args.headroom)
+    w = None if args.weights in (None, "stored") else args.weights
+    req = PlanRequest(gpus=args.gpus, gpu_memory_gb=args.gpu_memory, tp=args.tp, pp=args.pp, T=args.seq, B=args.batch, dtype=args.dtype, weights=w, headroom=args.headroom)
     p = plan_serving(doc, req)
     if args.json:
         print(json.dumps(p.to_dict(), indent=2))
@@ -316,7 +319,7 @@ def _plan(args) -> None:
     for n in p.notes:
         print(f"  note: {n}")
     if args.gpu:
-        t = estimate_throughput(doc, args.gpu, tp=r.tp, T=r.T, B=r.B, dtype=r.dtype)
+        t = estimate_throughput(doc, args.gpu, tp=r.tp, T=r.T, B=r.B, dtype=r.dtype, weights=r.weights)
         if t is None:
             print(f"  unknown GPU preset '{args.gpu}' — see modelmap plan --list-gpus")
         else:
@@ -363,7 +366,9 @@ def _diff(args) -> None:
     db = _load(args.b, token=args.token, refresh=args.refresh)
     al = align(da, db)
     if args.format == "json":
-        print(json.dumps({"a": da["model_id"], "b": db["model_id"], **al.to_dict()}, indent=2))
+        from modelmap.insights import insights
+
+        print(json.dumps({"a": da["model_id"], "b": db["model_id"], "insights": insights(da, db), **al.to_dict()}, indent=2))
     else:
         print(diff_markdown(da, db, al))
 

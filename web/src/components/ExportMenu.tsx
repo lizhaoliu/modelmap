@@ -89,6 +89,9 @@ export function ExportMenu() {
     return u.toString()
   })()
   const iframe = `<iframe src="${embedUrl}" width="100%" height="520" style="border:1px solid #d9dee6;border-radius:10px" loading="lazy" title="${doc.model_id} — modelmap"></iframe>`
+  // README / model-card badge: [ modelmap | 8.19B · GQA 4× · 36 layers ] → the map
+  const site = location.origin
+  const badge = `[![modelmap: ${doc.model_id}](${site}/badge/${doc.model_id}.svg)](${site}/m/${doc.model_id})`
 
   return (
     <span className="mm-topbar-rel" ref={ref}>
@@ -108,6 +111,7 @@ export function ExportMenu() {
           {!fileDoc && <div className="mm-export-grp">share</div>}
           {!fileDoc && <button role="menuitem" onClick={() => copy('Link', viewUrl)}>Copy link <span className="mm-dim">reproduces this exact view</span></button>}
           {!fileDoc && <button role="menuitem" onClick={() => copy('Embed code', iframe)}>Copy embed code <span className="mm-dim">&lt;iframe&gt; for model cards, blogs, docs</span></button>}
+          {!fileDoc && <button role="menuitem" onClick={() => copy('Badge markdown', badge)}>Copy README badge <span className="mm-dim">params · attention · layers, links here</span></button>}
           {!fileDoc && <button role="menuitem" onClick={() => copy('API URL', location.origin + apiUrl('csv').replace('format=csv', 'format=json'))}>Copy API URL <span className="mm-dim">/api/export · /api/summary · /docs</span></button>}
           {fileDoc && <div className="mm-pop-note">loaded from a file — server exports and share links need a Hub-extractable model</div>}
           {busy && <div className="mm-pop-note">working…</div>}

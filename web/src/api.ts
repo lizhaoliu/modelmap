@@ -88,3 +88,13 @@ export async function fetchHealth(): Promise<Health | null> {
     return null
   }
 }
+
+/** GET json, null on any failure (network, non-2xx). */
+export async function fetchJson<T>(url: string): Promise<T | null> {
+  try {
+    const r = await fetch(url)
+    return r.ok ? ((await r.json()) as T) : null
+  } catch {
+    return null
+  }
+}

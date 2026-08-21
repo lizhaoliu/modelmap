@@ -33,6 +33,8 @@ export interface State {
   toggleExpand: (id: string) => void
   expand: (id: string) => void
   expandMany: (ids: string[]) => void
+  /** open every ancestor of a module, select it and frame it (node finder, deep links) */
+  reveal: (id: string) => void
   collapse: (id: string) => void
   select: (id: string | null) => void
 }
@@ -204,6 +206,18 @@ export function createGraphStore(opts: StoreOptions): GraphStore {
       }
     }
     set({ expanded: enforceBudget(get(), expanded, opened), lastExpanded: opened })
+  },
+
+  reveal(id) {
+    const { index } = get()
+    if (!index?.byId.has(id)) return
+    const ancestors: string[] = []
+    const parts = id.split('.')
+    for (let i = 1; i < parts.length; i++) ancestors.push(parts.slice(0, i).join('.'))
+    const expanded = new Set(get().expanded)
+    for (const a of ['', ...ancestors]) if (index.children.get(a)?.length) expanded.add(a)
+    set({ expanded: enforceBudget(get(), expanded, id), lastExpanded: id })
+    get().select(id)
   },
 
   collapse(id) {

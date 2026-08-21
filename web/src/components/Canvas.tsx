@@ -22,6 +22,8 @@ import { useStore } from '../store'
 import type { Kind } from '../types'
 import { useIsMobile } from '../useMobile'
 import { Breadcrumb } from './Breadcrumb'
+import { VramBar } from './VramBar'
+import { NodeFinder } from './NodeFinder'
 import { FlowBar } from './FlowBar'
 
 const KIND_HEX: Record<Kind, string> = {
@@ -95,6 +97,7 @@ export function Canvas({
   }, [fitView, pad])
 
   const recompute = useCostStore((s) => s.recompute)
+  const lens = useCostStore((s) => s.lens)
   useEffect(() => { if (costs) recompute(doc, index) }, [doc, index, recompute, costs])
   const [view, setView] = useState<View>({ nodes: [], edges: [], positions: {} })
   const lastModel = useRef<string | null>(null)
@@ -277,6 +280,10 @@ export function Canvas({
         }}
         minZoom={0.08}
         maxZoom={2.5}
+        // d3-zoom's dblclick handler stops propagation before React sees it,
+        // which silently killed double-click-to-open on every node; double-click
+        // means "open" here, never "zoom"
+        zoomOnDoubleClick={false}
         fitView
         proOptions={{ hideAttribution: false }}
         nodesConnectable={false}
@@ -302,6 +309,8 @@ export function Canvas({
         )}
       </ReactFlow>
       <Breadcrumb />
+      {primary && !mobile && <NodeFinder />}
+      {lens === 'vram' && !(flowActive && flowEnabled) && <VramBar />}
       {flowEnabled && <FlowBar script={script} api={api} />}
     </div>
   )

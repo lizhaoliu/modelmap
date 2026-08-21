@@ -225,8 +225,12 @@ def test_compare_endpoint(api):
     assert d["counts"]["removed"] == 0 and d["counts"]["added"] > 0
     assert any(c["field"] == "num_hidden_layers" and c["b"] == "36" for c in d["config_diff"])
     assert all(p["status"] != "same" for p in d["pairs"])
+    # takeaways (§27): derived sentences ride along with the alignment
+    topics = {i["topic"]: i["text"] for i in d["insights"]}
+    assert "2.6× larger" in topics["attention"] and topics["qk_norm"].startswith("B adds per-head RMSNorm")
     r = api.get("/api/compare?a=Qwen/Qwen2.5-7B&b=Qwen/Qwen3-8B&format=md")
     assert r.headers["content-type"].startswith("text/markdown") and "q_norm" in r.text
+    assert "## Takeaways" in r.text and "KV cache per token 144 KB vs 56.0 KB" in r.text
     assert api.get("/api/compare?a=bad id&b=x").status_code == 400
 
 
@@ -285,3 +289,26 @@ def test_train_endpoint_and_plan_throughput(api):
     t = r.json()["throughput"]
     assert 65 < t["decode_tok_per_sec_b1"] < 80 and t["gpu"] == "A100 80GB"
     assert api.get("/api/plan/Qwen/Qwen3-8B?gpu=nope").status_code == 400
+
+
+def test_og_cards_and_meta_tags(api):
+    # cards come from the cache only (a crawler won't wait for an extraction)
+    r = api.get("/og/m/Qwen/Qwen3-8B.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.headers["cache-control"] == "no-store"
+    api.get("/api/graph/Qwen/Qwen3-8B")  # now cached
+    r2 = api.get("/og/m/Qwen/Qwen3-8B.png")
+    assert r2.status_code == 200 and "max-age" in r2.headers["cache-control"] and r2.content != r.content
+    assert r2.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert api.get("/og/m/Qwen/Qwen3-8B.png").content == r2.content  # disk-cached render
+    assert api.get("/og/default.png").status_code == 200
+    assert api.get("/og/arch/qwen.png").status_code == 200
+    api.get("/api/graph/Qwen/Qwen2.5-7B")
+    assert api.get("/og/compare.png?a=Qwen/Qwen2.5-7B&b=Qwen/Qwen3-8B").headers["content-type"] == "image/png"
+    # the SPA shell carries the page's tags (only when the web build is present)
+    r = api.get("/m/Qwen/Qwen3-8B?lens=kv")
+    if "text/html" in r.headers.get("content-type", ""):
+        assert '<meta property="og:image" content="https://modelmap.cc/og/m/Qwen/Qwen3-8B.png" />' in r.text
+        assert "<title>Qwen/Qwen3-8B — architecture map</title>" in r.text
+        assert "8.19B params" in r.text  # cached summary feeds the description
+        assert '<link rel="canonical" href="https://modelmap.cc/m/Qwen/Qwen3-8B" />' in r.text
+        assert "<title>modelmap</title>" in api.get("/").text

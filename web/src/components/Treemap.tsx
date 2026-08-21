@@ -67,8 +67,9 @@ export function Treemap({ parent, overview = false }: { parent: string; overview
   const select = useStore((s) => s.select)
   const lens = useCostStore((s) => s.lens)
   const report = useCostStore((s) => s.report)
+  const assumptions = useCostStore((s) => s.assumptions)
   const metric = lens === 'none' ? 'params' : lens
-  const valueOf = (k: GNode) => lensValue(metric, k, report?.byNode.get(k.id))
+  const valueOf = (k: GNode) => lensValue(metric, k, report?.byNode.get(k.id), assumptions)
   const cells = useMemo(() => {
     if (!index) return []
     let kids = (index.children.get(parent) ?? []).filter((k) => valueOf(k) > 0)
@@ -118,7 +119,7 @@ export function Treemap({ parent, overview = false }: { parent: string; overview
           )
         })}
       </svg>
-      <figcaption>{metric === 'params' ? 'parameters' : metric === 'compute' ? 'compute (MACs)' : metric === 'memory' ? 'activation memory' : 'KV cache'} by child · click to select</figcaption>
+      <figcaption>{metric === 'params' ? 'parameters' : metric === 'compute' ? 'compute (MACs)' : metric === 'memory' ? 'activation memory' : metric === 'vram' ? 'GPU memory (weights + KV)' : 'KV cache'} by child · click to select</figcaption>
     </figure>
   )
 }

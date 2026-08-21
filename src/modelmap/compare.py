@@ -196,6 +196,11 @@ def diff_markdown(doc_a: dict, doc_b: dict, al: Alignment | None = None, *, limi
         f"{c['same']} modules identical · {c['changed']} changed · {c['added']} added in B · {c['removed']} removed from A"
     )
     lines.append("")
+    from modelmap.insights import insights
+
+    takeaways = insights(doc_a, doc_b)
+    if takeaways:
+        lines += ["## Takeaways", ""] + [f"- {t['text']}" for t in takeaways] + [""]
     if al.config_diff:
         lines += ["## Config", "", "| field | A | B |", "|---|---|---|"]
         lines += [f"| {ch.field} | {ch.a or '—'} | {ch.b or '—'} |" for ch in al.config_diff]

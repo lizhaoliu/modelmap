@@ -4,7 +4,7 @@
  * identical (web/tests/train.test.ts pins the same fixture numbers).
  */
 import type { GraphDoc, GraphIndex } from '../types'
-import { computeCosts, type Assumptions } from './cost'
+import { computeCosts, textConfig, type Assumptions } from './cost'
 
 export const LORA_TARGETS: Record<string, string[]> = {
   attention: ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'qkv_proj', 'c_attn', 'query', 'key', 'value', 'dense', 'out_proj'],
@@ -76,7 +76,7 @@ export function planTraining(doc: GraphDoc, index: GraphIndex, req: TrainRequest
   const notes: string[] = []
   const a: Assumptions = { T: req.T, B: req.B, bytes: 2, dtypeLabel: 'bf16' }
   const rep = computeCosts(doc, index, a)
-  const c = doc.config as Record<string, unknown>
+  const c = textConfig(doc)
   const params = doc.params_total
   const gpus = Math.max(1, req.gpus)
   const cap = req.gpuMemoryGb * 2 ** 30 * (1 - req.headroom)
@@ -196,14 +196,16 @@ export interface Throughput {
 
 export function estimateThroughput(
   doc: GraphDoc, index: GraphIndex, gpu: string,
-  opts: { tp?: number; T?: number; B?: number; bytes?: number; dtypeLabel?: string } = {},
+  opts: { tp?: number; T?: number; B?: number; bytes?: number; dtypeLabel?: string; weights?: string; weightBytes?: number } = {},
 ): Throughput | null {
   const spec = GPU_SPECS[gpu]
   if (!spec) return null
   const tp = opts.tp ?? 1
   const T = opts.T ?? 4096
   const B = opts.B ?? 1
-  const rep = computeCosts(doc, index, { T, B, bytes: opts.bytes ?? 2, dtypeLabel: opts.dtypeLabel ?? 'bf16' })
+  const rep = computeCosts(doc, index, {
+    T, B, bytes: opts.bytes ?? 2, dtypeLabel: opts.dtypeLabel ?? 'bf16', weights: opts.weights, weightBytes: opts.weightBytes,
+  })
   const tokens = Math.max(1, T * B)
   const macsTok = rep.root.macs / tokens
   const params = doc.params_total || 1

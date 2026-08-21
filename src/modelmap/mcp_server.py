@@ -66,16 +66,24 @@ def get_doc(model_id: str) -> dict:
     return doc
 
 
-def _assume(T: int, B: int, dtype: str) -> Assumptions:
+def _weights(weights: str) -> str | None:
+    if weights in ("", "stored"):
+        return None
+    if weights not in WHATIF_DTYPES:
+        raise ValueError(f"weights must be one of stored, {', '.join(WHATIF_DTYPES)}")
+    return weights
+
+
+def _assume(T: int, B: int, dtype: str, weights: str = "") -> Assumptions:
     if dtype not in WHATIF_DTYPES:
         raise ValueError(f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
-    return Assumptions(T=max(1, T), B=max(1, B), dtype=dtype)
+    return Assumptions(T=max(1, T), B=max(1, B), dtype=dtype, weights=_weights(weights))
 
 
 # ------------------------------------------------------------------- tools
 
 
-def describe_model(model_id: str, T: int = 4096, B: int = 1, dtype: str = "bf16") -> dict:
+def describe_model(model_id: str, T: int = 4096, B: int = 1, dtype: str = "bf16", weights: str = "") -> dict:
     """Architecture summary of a Hugging Face model: class, parameter count
     (and active parameters per token for MoE), layer stacks, the config
     essentials (hidden size, heads, KV heads, experts, context length…),
@@ -83,19 +91,19 @@ def describe_model(model_id: str, T: int = 4096, B: int = 1, dtype: str = "bf16"
     estimates at the given sequence length T, batch B and dtype.
     model_id is "owner/name", optionally ":Q4_K_M" to pick a GGUF variant."""
     doc = get_doc(model_id)
-    s = summarize(doc, _assume(T, B, dtype))
+    s = summarize(doc, _assume(T, B, dtype, weights))
     s["explore_url"] = f"https://modelmap.cc/m/{model_id}"
     return s
 
 
-def estimate_cost(model_id: str, T: int = 4096, B: int = 1, dtype: str = "bf16") -> dict:
+def estimate_cost(model_id: str, T: int = 4096, B: int = 1, dtype: str = "bf16", weights: str = "") -> dict:
     """Compute (MACs per token and per forward), weight bytes at the stored
     dtypes, activation bytes, and KV-cache bytes per token and at T — for one
     model at sequence length T, batch B, activation dtype. Analytic estimates
     from traced tensor shapes: weight matmuls + the attention core; fused
     kernels, softmax and elementwise work are not counted."""
     doc = get_doc(model_id)
-    s = summarize(doc, _assume(T, B, dtype))
+    s = summarize(doc, _assume(T, B, dtype, weights))
     return {
         "model_id": s["model_id"], "params_total": s["params_total"], "active_params": s["active_params"],
         "assumptions": s["assumptions"], "cost": s["cost"], "notes": s["notes"],
@@ -104,21 +112,23 @@ def estimate_cost(model_id: str, T: int = 4096, B: int = 1, dtype: str = "bf16")
 
 def plan_serving_tool(
     model_id: str, gpus: int = 1, gpu_memory_gb: float = 80, tp: int = 1, pp: int = 1,
-    T: int = 4096, B: int = 1, dtype: str = "bf16", headroom: float = 0.1, gpu: str = "",
+    T: int = 4096, B: int = 1, dtype: str = "bf16", weights: str = "", headroom: float = 0.1, gpu: str = "",
 ) -> dict:
     """Will this model fit on N GPUs? Tensor-/pipeline-parallel placement
     estimate: per-GPU weight, KV-cache and activation bytes for a tp × pp
     layout, which layer ranges land on which pipeline stage, whether every
     stage fits under (1 − headroom) × GPU memory, the activation bytes crossing
     each stage boundary per forward, and the KV-limited maximum context length
-    at batch B. Use dtype for activations/KV; weights use their stored dtype."""
+    at batch B. dtype is for activations/KV; weights use their stored dtype
+    unless `weights` names a quantization to plan for (int4, int8, f8, bf16)."""
     if dtype not in WHATIF_DTYPES:
         raise ValueError(f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
+    w = _weights(weights)
     doc = get_doc(model_id)
-    req = PlanRequest(gpus=gpus, gpu_memory_gb=gpu_memory_gb, tp=tp, pp=pp, T=T, B=B, dtype=dtype, headroom=headroom)
+    req = PlanRequest(gpus=gpus, gpu_memory_gb=gpu_memory_gb, tp=tp, pp=pp, T=T, B=B, dtype=dtype, weights=w, headroom=headroom)
     out = plan_serving(doc, req).to_dict()
     if gpu:
-        t = estimate_throughput(doc, gpu, tp=tp, T=T, B=B, dtype=dtype)
+        t = estimate_throughput(doc, gpu, tp=tp, T=T, B=B, dtype=dtype, weights=w)
         if t is None:
             raise ValueError(f"unknown GPU preset '{gpu}'; one of: {', '.join(GPU_SPECS)}")
         out["throughput"] = t.to_dict()
@@ -149,12 +159,16 @@ def plan_finetune(
 
 def compare_models(a: str, b: str, format: str = "markdown") -> str | dict:
     """Module-by-module structural diff of two models (aligned by path, then
-    by role): config changes, changed modules with their field-level diffs,
-    and modules only in one of them. format: "markdown" (default) or "json"."""
+    by role): takeaways first (derived, quantified sentences — attention
+    scheme and KV-cache ratio, MoE routing, MLP shape, positions, norms,
+    context, vocab), then config changes, changed modules with field-level
+    diffs, and modules only in one of them. format: "markdown" (default) or "json"."""
+    from modelmap.insights import insights
+
     da, db = get_doc(a), get_doc(b)
     al = align(da, db)
     if format == "json":
-        return {"a": a, "b": b, **al.to_dict(changed_only=True)}
+        return {"a": a, "b": b, "insights": insights(da, db), **al.to_dict(changed_only=True)}
     return diff_markdown(da, db, al)
 
 

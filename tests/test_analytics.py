@@ -270,3 +270,29 @@ def test_zoo_tags_families_and_catalog(tmp_path, monkeypatch):
     assert sorted(ids) == ["Qwen/Qwen3-8B", "openai-community/gpt2"]
     q = next(e for e in cat if e["model_id"] == "Qwen/Qwen3-8B")
     assert q["layers"] == 36 and q["family"] == "qwen" and q["kv_bytes_per_token"] == 36 * 2 * 8 * 128 * 2
+
+
+def test_serving_precision_and_vlm_text_config():
+    """§26: `weights=int4` re-prices weights only (pinned with cost.test.ts);
+    VLM configs nest the language model under text_config and still get KV."""
+    doc = load("qwen3-8b")
+    idx = build_index(doc)
+    stored = compute_costs(doc, idx, Assumptions(T=4096))
+    int4 = compute_costs(doc, idx, Assumptions(T=4096, weights="int4"))
+    assert round(stored.root.param_bytes / 1e9, 1) == 16.4
+    assert round(int4.root.param_bytes / 1e9, 2) == 4.1
+    assert int4.root.kv_per_token == stored.root.kv_per_token
+    assert int4.root.act_bytes == stored.root.act_bytes
+    # the planner follows: an 8B that overflows a 16 GB card at bf16 fits it at int4
+    bf = plan_serving(doc, PlanRequest(gpu_memory_gb=16, T=4096))
+    q4 = plan_serving(doc, PlanRequest(gpu_memory_gb=16, T=4096, weights="int4"))
+    assert not bf.fits and q4.fits and "quantized to int4" in q4.notes[-1]
+    # at 128k context the KV cache outweighs the bf16 weights — the vram lens story
+    long = compute_costs(doc, idx, Assumptions(T=131072))
+    assert long.root.kv_per_token * 131072 > long.root.param_bytes
+
+    vl = load("qwen2.5-vl-3b")
+    rep = compute_costs(vl, build_index(vl), Assumptions(T=4096))
+    assert rep.root.kv_per_token == 36 * 2 * 2 * 128 * 2 and rep.kv_layers == 36
+    s = summarize(vl, Assumptions(T=4096))
+    assert s["cost"]["kv_bytes_per_token"] == rep.root.kv_per_token

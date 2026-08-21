@@ -84,14 +84,14 @@ export function renderSvg(
   const badge = (n: MMNode): string | null => {
     const g = n.data.g
     if (lens === 'none') return g.params > 0 ? fmtParams(g.params) : null
-    const v = lensValue(lens, g, opts.report?.byNode.get(g.id))
+    const v = lensValue(lens, g, opts.report?.byNode.get(g.id), opts.report?.assumptions)
     return v > 0 ? fmtLens(lens, v) : null
   }
   const heatOf = (n: MMNode): number => {
     if (lens === 'none' || !opts.report) return 0
     const g = n.data.g
-    const v = lensValue(lens, g, opts.report.byNode.get(g.id))
-    const rootV = lens === 'params' ? total : lensValue(lens, g, opts.report.root)
+    const v = lensValue(lens, g, opts.report.byNode.get(g.id), opts.report.assumptions)
+    const rootV = lens === 'params' ? total : lensValue(lens, g, opts.report.root, opts.report.assumptions)
     const share = rootV > 0 ? Math.min(1, v / rootV) : 0
     return v > 0 ? Math.min(0.85, 0.06 + 0.8 * Math.sqrt(share)) : 0
   }

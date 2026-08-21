@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { gotoCompare, gotoModel } from '../api'
+import { gotoCompare, gotoModel, fetchJson } from '../api'
 import { fmtBytes } from '../analytics/cost'
 import { fmtParams } from '../fmt'
 
@@ -23,6 +23,7 @@ export interface CatalogEntry {
   kv_bytes_per_token: number
   macs_per_token: number
   tags: string[]
+  recipe?: string[]
 }
 
 interface FamilyMember {
@@ -36,15 +37,6 @@ export interface Family {
   blurb: string
   members: FamilyMember[]
   extra: FamilyMember[]
-}
-
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const r = await fetch(url)
-    return r.ok ? r.json() : null
-  } catch {
-    return null
-  }
 }
 
 const fmtCtx = (n: number | null) => (n == null ? '—' : n >= 1 << 20 ? `${n / (1 << 20)}M` : n >= 1024 ? `${Math.round(n / 1024)}k` : String(n))
@@ -134,6 +126,8 @@ interface LineageDiff {
   added: number
   removed: number
   fields: string[]
+  /** derived takeaways from /api/compare (§27) */
+  insights: string[]
 }
 
 function useLineageDiff(a: string | undefined, b: string | undefined): LineageDiff | null {
@@ -141,7 +135,7 @@ function useLineageDiff(a: string | undefined, b: string | undefined): LineageDi
   useEffect(() => {
     if (!a || !b) return
     let alive = true
-    void fetchJson<{ counts: Record<string, number>; config_diff: { field: string }[]; pairs: { changes: { field: string }[] }[] }>(
+    void fetchJson<{ counts: Record<string, number>; config_diff: { field: string }[]; insights?: { topic: string; text: string }[] }>(
       `/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
     ).then((r) => {
       if (!alive || !r) return
@@ -150,7 +144,7 @@ function useLineageDiff(a: string | undefined, b: string | undefined): LineageDi
         .map((c) => c.field)
         .filter((f) => !['architectures', 'model_type', 'torch_dtype', 'dtype'].includes(f))
         .slice(0, 4)
-      setD({ changed: r.counts.changed, added: r.counts.added, removed: r.counts.removed, fields: top })
+      setD({ changed: r.counts.changed, added: r.counts.added, removed: r.counts.removed, fields: top, insights: (r.insights ?? []).map((i) => i.text) })
     })
     return () => {
       alive = false
@@ -171,6 +165,11 @@ function LineageStep({ from, to }: { from: FamilyMember; to: FamilyMember }) {
             : `${d.changed} changed${d.added ? ` · +${d.added}` : ''}${d.removed ? ` · −${d.removed}` : ''}${d.fields.length ? ` — ${d.fields.join(', ')}` : ''}`
           : 'diff…'}
       </button>
+      {d && d.insights.length > 0 && (
+        <ul className="mm-zoo-takeaways" aria-label="what changed">
+          {d.insights.slice(0, 3).map((t) => <li key={t}>{t}</li>)}
+        </ul>
+      )}
     </div>
   )
 }
@@ -184,6 +183,7 @@ function MemberCard({ m }: { m: FamilyMember }) {
         <>
           <span>{fmtParams(e.params_total)}{e.active_params < 0.9 * e.params_total ? ` · ${fmtParams(e.active_params)} active` : ''}{e.layers != null ? ` · ${e.layers}L` : ''}{e.hidden != null ? ` · ${e.hidden}h` : ''}</span>
           <span className="mm-zoo-tags">{e.tags.slice(0, 4).map((t) => <Tag key={t} t={t} />)}</span>
+          {e.recipe && e.recipe.length > 0 && <span className="mm-zoo-recipe">{e.recipe.join(' · ')}</span>}
         </>
       ) : (
         <span className="mm-dim">first visit extracts it</span>

@@ -82,7 +82,10 @@ export interface GraphIndex {
  *  transposed weights (gpt2 Conv1D) and exotic layouts. A value claimed by
  *  two different labels is left unlabeled: wrong beats unlabeled, never. */
 export function buildDimLabels(doc: GraphDoc): Map<number, string> {
-  const c = doc.config as Record<string, unknown>
+  // multimodal configs nest the language model under text_config (twin of analytics.text_config)
+  const c = { ...(doc.config as Record<string, unknown>) }
+  const tc = c.text_config
+  if (tc && typeof tc === 'object') for (const [k, v] of Object.entries(tc as Record<string, unknown>)) if (!(k in c)) c[k] = v
   const num = (k: string) => (typeof c[k] === 'number' ? (c[k] as number) : undefined)
   const hidden = num('hidden_size') ?? num('n_embd')
   const heads = num('num_attention_heads') ?? num('n_head')

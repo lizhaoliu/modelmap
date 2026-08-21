@@ -1,47 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { fmtBytes, fmtInt } from '../analytics/cost'
 import { useCostStore } from '../analytics/costStore'
 import { GPU_PRESETS, planServing, type PlanRequest } from '../analytics/plan'
+import { usePlanStore, type PlanSettings } from '../analytics/planStore'
 import { estimateThroughput, planTraining, type TrainRequest } from '../analytics/train'
 import { fmtParams } from '../fmt'
 import { useStore } from '../store'
-
-const KEY = 'mm-plan'
-
-interface Saved {
-  gpus: number; mem: number; tp: number; pp: number; headroom: number
-  mode: 'serve' | 'train'
-  gpuName: string
-  method: 'full' | 'lora' | 'qlora'; rank: number; targets: 'attention' | 'attn-mlp' | 'all-linear'
-  optim: 'adamw' | 'adamw8bit'; sharding: 'none' | 'zero2' | 'zero3'; ckpt: boolean; flash: boolean
-}
-const DEFAULTS: Saved = {
-  gpus: 1, mem: 80, tp: 1, pp: 1, headroom: 0.1,
-  mode: 'serve', gpuName: 'H100 80GB',
-  method: 'qlora', rank: 16, targets: 'attn-mlp', optim: 'adamw', sharding: 'none', ckpt: true, flash: true,
-}
-
-function load(): Saved {
-  try {
-    const p = new URL(location.href).searchParams
-    const fromUrl: Partial<Saved> = {}
-    if (p.get('gpus')) fromUrl.gpus = +p.get('gpus')!
-    if (p.get('gmem')) fromUrl.mem = +p.get('gmem')!
-    if (p.get('tp')) fromUrl.tp = +p.get('tp')!
-    if (p.get('pp')) fromUrl.pp = +p.get('pp')!
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Saved>
-    return { ...DEFAULTS, ...saved, ...fromUrl }
-  } catch {
-    return DEFAULTS
-  }
-}
-function persist(s: Saved) {
-  localStorage.setItem(KEY, JSON.stringify(s))
-  const u = new URL(location.href)
-  const set = (k: string, v: number, d: number) => (v === d ? u.searchParams.delete(k) : u.searchParams.set(k, String(v)))
-  set('gpus', s.gpus, DEFAULTS.gpus); set('gmem', s.mem, DEFAULTS.mem); set('tp', s.tp, DEFAULTS.tp); set('pp', s.pp, DEFAULTS.pp)
-  history.replaceState({}, '', u)
-}
 
 /** "fit?" — the serving planner (design doc §17): does this model fit on my
  *  GPUs, how would TP/PP split it, and how much context is left for KV. */
@@ -49,9 +13,10 @@ export function Planner({ onClose }: { onClose: () => void }) {
   const doc = useStore((s) => s.doc)
   const index = useStore((s) => s.index)
   const a = useCostStore((s) => s.assumptions)
-  const [s, setS] = useState<Saved>(load)
+  const s = usePlanStore((st) => st.s)
+  const upd = usePlanStore((st) => st.upd)
+  const pickGpu = usePlanStore((st) => st.pickGpu)
   const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => persist(s), [s])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as globalThis.Node) && onClose()
@@ -62,12 +27,12 @@ export function Planner({ onClose }: { onClose: () => void }) {
 
   const plan = useMemo(() => {
     if (!doc || !index || s.mode !== 'serve') return null
-    const req: PlanRequest = { gpus: s.gpus, gpuMemoryGb: s.mem, tp: s.tp, pp: s.pp, T: a.T, B: a.B, dtypeLabel: a.dtypeLabel, bytes: a.bytes, headroom: s.headroom }
+    const req: PlanRequest = { gpus: s.gpus, gpuMemoryGb: s.mem, tp: s.tp, pp: s.pp, T: a.T, B: a.B, dtypeLabel: a.dtypeLabel, bytes: a.bytes, weights: a.weights, weightBytes: a.weightBytes, headroom: s.headroom }
     return planServing(doc, index, req)
   }, [doc, index, s, a])
   const tput = useMemo(() => {
     if (!doc || !index || s.mode !== 'serve') return null
-    return estimateThroughput(doc, index, s.gpuName, { tp: s.tp, T: a.T, B: a.B, bytes: a.bytes, dtypeLabel: a.dtypeLabel })
+    return estimateThroughput(doc, index, s.gpuName, { tp: s.tp, T: a.T, B: a.B, bytes: a.bytes, dtypeLabel: a.dtypeLabel, weights: a.weights, weightBytes: a.weightBytes })
   }, [doc, index, s, a])
   const train = useMemo(() => {
     if (!doc || !index || s.mode !== 'train') return null
@@ -80,22 +45,12 @@ export function Planner({ onClose }: { onClose: () => void }) {
   }, [doc, index, s, a])
   if (!doc || (!plan && !train)) return null
 
-  const upd = (patch: Partial<Saved>) => setS((cur) => {
-    const next = { ...cur, ...patch }
-    // keep tp × pp = gpus: changing gpus re-derives pp; changing tp/pp re-derives gpus
-    if (patch.gpus != null) {
-      next.tp = Math.min(next.tp, next.gpus)
-      next.pp = Math.max(1, Math.floor(next.gpus / next.tp))
-      if (next.tp * next.pp !== next.gpus) { next.tp = 1; next.pp = next.gpus }
-    } else if (patch.tp != null || patch.pp != null) next.gpus = next.tp * next.pp
-    return next
-  })
   const tpOptions = [1, 2, 4, 8, 16].filter((x) => x <= 64)
   const cap = (plan ?? train)!.perGpuCapacityBytes
   const pct = (b: number) => (cap > 0 ? Math.min(100, (b / cap) * 100) : 0)
   const cmd =
     s.mode === 'serve'
-      ? `uvx modelmap plan ${doc.model_id} --gpus ${s.gpus} --gpu-memory ${s.mem} --tp ${s.tp} --pp ${s.pp} -T ${a.T} -B ${a.B} --dtype ${a.dtypeLabel} --gpu "${s.gpuName}"`
+      ? `uvx modelmap plan ${doc.model_id} --gpus ${s.gpus} --gpu-memory ${s.mem} --tp ${s.tp} --pp ${s.pp} -T ${a.T} -B ${a.B} --dtype ${a.dtypeLabel}${a.weightBytes != null ? ` --weights ${a.weights}` : ''} --gpu "${s.gpuName}"`
       : `uvx modelmap train ${doc.model_id} --method ${s.method}${s.method !== 'full' ? ` --rank ${s.rank} --targets ${s.targets}` : ''} --optimizer ${s.optim} --gpus ${s.gpus} --gpu-memory ${s.mem} --sharding ${s.sharding} -T ${a.T} -B ${a.B} --gpu "${s.gpuName}"`
 
   return (
@@ -109,14 +64,7 @@ export function Planner({ onClose }: { onClose: () => void }) {
       </div>
       <div className="mm-plan-grid">
         <label>GPU
-          <select
-            value={s.gpuName}
-            onChange={(e) => {
-              const name = e.target.value
-              const gb = GPU_PRESETS.find(([n]) => n === name)?.[1]
-              upd(gb != null ? { gpuName: name, mem: gb } : { gpuName: name })
-            }}
-          >
+          <select value={s.gpuName} onChange={(e) => pickGpu(e.target.value)}>
             {GPU_PRESETS.map(([name]) => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
@@ -126,7 +74,7 @@ export function Planner({ onClose }: { onClose: () => void }) {
         {s.mode === 'serve' && <label>pipeline ∥ <input type="number" min={1} max={4096} value={s.pp} onChange={(e) => upd({ pp: Math.max(1, Math.floor(Number(e.target.value) || 1)) })} /></label>}
         {s.mode === 'train' && (
           <label>method
-            <select value={s.method} onChange={(e) => upd({ method: e.target.value as Saved['method'] })}>
+            <select value={s.method} onChange={(e) => upd({ method: e.target.value as PlanSettings['method'] })}>
               <option value="qlora">QLoRA</option>
               <option value="lora">LoRA</option>
               <option value="full">full FT</option>
@@ -142,7 +90,7 @@ export function Planner({ onClose }: { onClose: () => void }) {
         )}
         {s.mode === 'train' && s.method !== 'full' && (
           <label>targets
-            <select value={s.targets} onChange={(e) => upd({ targets: e.target.value as Saved['targets'] })}>
+            <select value={s.targets} onChange={(e) => upd({ targets: e.target.value as PlanSettings['targets'] })}>
               <option value="attention">attention</option>
               <option value="attn-mlp">attn + mlp</option>
               <option value="all-linear">all linear</option>
@@ -151,7 +99,7 @@ export function Planner({ onClose }: { onClose: () => void }) {
         )}
         {s.mode === 'train' && (
           <label>optimizer
-            <select value={s.optim} onChange={(e) => upd({ optim: e.target.value as Saved['optim'] })}>
+            <select value={s.optim} onChange={(e) => upd({ optim: e.target.value as PlanSettings['optim'] })}>
               <option value="adamw">AdamW</option>
               <option value="adamw8bit">AdamW 8-bit</option>
             </select>
@@ -159,7 +107,7 @@ export function Planner({ onClose }: { onClose: () => void }) {
         )}
         {s.mode === 'train' && (
           <label>sharding
-            <select value={s.sharding} onChange={(e) => upd({ sharding: e.target.value as Saved['sharding'] })}>
+            <select value={s.sharding} onChange={(e) => upd({ sharding: e.target.value as PlanSettings['sharding'] })}>
               <option value="none">none</option>
               <option value="zero2">ZeRO-2</option>
               <option value="zero3">ZeRO-3 / FSDP</option>
@@ -174,7 +122,7 @@ export function Planner({ onClose }: { onClose: () => void }) {
         )}
         <label>headroom <select value={s.headroom} onChange={(e) => upd({ headroom: Number(e.target.value) })}>{[0, 0.05, 0.1, 0.15, 0.2, 0.3].map((h) => <option key={h} value={h}>{Math.round(h * 100)}%</option>)}</select></label>
       </div>
-      <p className="mm-plan-assume">at T {fmtInt(a.T)} · B {a.B}{s.mode === 'train' ? '/gpu · bf16 training' : ` · ${a.dtypeLabel}`} (change in the assumptions chip) · capacity {fmtBytes(cap)}/GPU</p>
+      <p className="mm-plan-assume">at T {fmtInt(a.T)} · B {a.B}{s.mode === 'train' ? '/gpu · bf16 training' : ` · ${a.dtypeLabel}${a.weightBytes != null ? ` · weights ${a.weights}` : ''}`} (change in the assumptions chip) · capacity {fmtBytes(cap)}/GPU</p>
       {plan && <table className="mm-plan-table">
         <thead><tr><th>stage</th><th>layers</th><th>weights</th><th>kv</th><th>act</th><th>total / GPU</th></tr></thead>
         <tbody>

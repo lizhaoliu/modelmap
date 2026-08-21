@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { computeCosts, DEFAULT_ASSUMPTIONS, fmtBytes, fmtMacs } from '../analytics/cost'
+import { fetchJson } from '../api'
 import { useCompareStore } from '../compare/compareStore'
 import type { Pair } from '../compare/align'
 import { fmtParams, leafName } from '../fmt'
@@ -27,10 +28,33 @@ function cfg(doc: GraphDoc, keys: string[]): string {
   return '—'
 }
 
+interface Insight { topic: string; text: string; a: unknown; b: unknown }
+
+/** Takeaways (§27): the server derives quantified sentences from both graphs
+ *  (attention scheme → KV ratio, MoE routing, MLP shape, positions, norms…)
+ *  so the compare page, the zoo, the CLI and MCP all say the same thing. */
+function useInsights(idA: string | undefined, idB: string | undefined): Insight[] | null {
+  const [items, setItems] = useState<Insight[] | null>(null)
+  useEffect(() => {
+    if (!idA || !idB) return
+    let alive = true
+    setItems(null)
+    void fetchJson<{ insights?: Insight[] }>(`/api/compare?a=${encodeURIComponent(idA)}&b=${encodeURIComponent(idB)}`)
+      .then((r) => alive && setItems(r?.insights ?? []))
+      .catch(() => alive && setItems([]))
+    return () => {
+      alive = false
+    }
+  }, [idA, idB])
+  return items
+}
+
 function Summary({ a, b }: { a: { doc: GraphDoc; index: GraphIndex }; b: { doc: GraphDoc; index: GraphIndex } }) {
   const al = useCompareStore((s) => s.alignment)
   const diffOnly = useCompareStore((s) => s.diffOnly)
   const setDiffOnly = useCompareStore((s) => s.setDiffOnly)
+  const insights = useInsights(a.doc.model_id, b.doc.model_id)
+  const [showAll, setShowAll] = useState(false)
   const costs = useMemo(
     () => [computeCosts(a.doc, a.index, DEFAULT_ASSUMPTIONS), computeCosts(b.doc, b.index, DEFAULT_ASSUMPTIONS)],
     [a, b],
@@ -66,6 +90,20 @@ function Summary({ a, b }: { a: { doc: GraphDoc; index: GraphIndex }; b: { doc: 
           </div>
         ))}
       </div>
+      {insights && insights.length > 0 && (
+        <div className="mm-cmp-takeaways" aria-label="Takeaways">
+          <span className="mm-cmp-takeaways-h">takeaways <span className="mm-dim">B vs A · derived from both graphs</span></span>
+          <ul>
+            {(showAll ? insights : insights.slice(0, 4)).map((i) => <li key={i.topic} data-topic={i.topic}>{i.text}</li>)}
+          </ul>
+          {insights.length > 4 && (
+            <button className="mm-link" onClick={() => setShowAll((v) => !v)}>{showAll ? 'fewer' : `${insights.length - 4} more`}</button>
+          )}
+        </div>
+      )}
+      {insights && insights.length === 0 && al && al.counts.changed + al.counts.added + al.counts.removed === 0 && (
+        <p className="mm-cmp-takeaways mm-dim">Same recipe, same shape — these two are structurally identical.</p>
+      )}
     </div>
   )
 }

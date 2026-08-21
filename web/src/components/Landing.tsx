@@ -2,13 +2,28 @@ import { useEffect, useState } from 'react'
 import { fetchGallery, fetchHealth, gotoCompare, type Gallery, type GalleryEntry } from '../api'
 import { fmtCount, fmtParams } from '../fmt'
 import { useStore } from '../store'
+import { useCostStore } from '../analytics/costStore'
+import { GPU_PRESETS } from '../analytics/plan'
+import { usePlanStore } from '../analytics/planStore'
 import { HeroFlow } from './HeroFlow'
 import { ModelSearch } from './ModelSearch'
+
+/** open a model straight into the vram lens for the chosen GPU (§26) */
+export async function openFit(loadModel: (id: string) => Promise<void>, id: string, gpuName?: string) {
+  if (gpuName) usePlanStore.getState().pickGpu(gpuName)
+  await loadModel(id)
+  if (useStore.getState().doc) {
+    useCostStore.getState().setLens('vram')
+    usePlanStore.getState().upd({}) // loadModel replaced the URL: put the GPU back into it
+  }
+}
 
 export function Landing() {
   const loadModel = useStore((s) => s.loadModel)
   const [gallery, setGallery] = useState<Gallery | null>(null)
   const [cmpA, setCmpA] = useState('')
+  const gpuName = usePlanStore((st) => st.s.gpuName)
+  const pickGpu = usePlanStore((st) => st.pickGpu)
   const [allowLocal, setAllowLocal] = useState(false)
   const [localPath, setLocalPath] = useState('')
   useEffect(() => {
@@ -30,10 +45,24 @@ export function Landing() {
       <div className="mm-landing-hero">
         <h1 className="mm-wordmark">modelmap</h1>
         <p className="mm-tagline">
-          Paste a Hugging Face model id. Get a living map of the network — no weights downloaded.
+          Paste a Hugging Face model id. See the whole network, watch a forward pass, and find out whether it fits on your GPU — no weights downloaded.
         </p>
         <HeroFlow />
         <ModelSearch big />
+        <form className="mm-fit-entry" aria-label="Will it fit on my GPU?" onSubmit={(e) => e.preventDefault()}>
+          <span className="mm-fit-q">will it fit on</span>
+          <select value={gpuName} onChange={(e) => pickGpu(e.target.value)} aria-label="GPU">
+            {GPU_PRESETS.map(([name]) => <option key={name} value={name}>{name}</option>)}
+          </select>
+          <span className="mm-fit-q">?</span>
+          <ModelSearch placeholder="model id" onPick={(id) => void openFit(loadModel, id, gpuName)} />
+          <span className="mm-cmp-entry-hint">
+            weights + KV cache + activations on the map itself · try{' '}
+            <button className="mm-link" onClick={() => void openFit(loadModel, 'Qwen/Qwen3-8B', gpuName)}>Qwen3-8B</button>
+            {' '}or{' '}
+            <button className="mm-link" onClick={() => void openFit(loadModel, 'deepseek-ai/DeepSeek-V3.1', gpuName)}>DeepSeek-V3.1</button>
+          </span>
+        </form>
       </div>
       {gallery === null && <p className="mm-gallery-loading">loading gallery…</p>}
       {gallery && gallery.trending.length > 0 && (
@@ -137,11 +166,16 @@ function Card({ g, rank, loadModel, openFlow }: { g: GalleryEntry; rank?: number
           )}
         </span>
       </button>
-      {(g.summary?.trace_steps ?? 1) > 0 && (
-        <button className="mm-card-flow" title="Replay the forward pass" onClick={() => openFlow(g.id)}>
-          ▶ flow
+      <span className="mm-card-actions">
+        {(g.summary?.trace_steps ?? 1) > 0 && (
+          <button className="mm-card-flow" title="Replay the forward pass" onClick={() => openFlow(g.id)}>
+            ▶ flow
+          </button>
+        )}
+        <button className="mm-card-flow mm-card-fit" title="Does it fit on my GPU? Opens the vram lens" onClick={() => void openFit(loadModel, g.id)}>
+          fit?
         </button>
-      )}
+      </span>
     </article>
   )
 }

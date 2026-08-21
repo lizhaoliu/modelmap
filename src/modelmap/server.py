@@ -13,6 +13,8 @@ The public API (design doc §16; OpenAPI at /docs):
   GET /api/plan/{id}?gpus=…      serving placement estimate (§17)
   GET /api/compare?a=&b=         module-by-module diff (json | md)
   GET /api/gallery, /api/search  landing data, Hub search
+  GET /og/…png                   social preview cards (§25); index.html gets
+                                 per-URL og:/twitter: tags so links unfurl
 All GET, CORS-enabled for any origin; ids accept owner/name[:variant].
 """
 
@@ -323,7 +325,15 @@ def _check_id(model_id: str) -> str:
     return model_id
 
 
-def _assumptions(T: int | None, B: int | None, dtype: str | None) -> Assumptions:
+def _weights_ok(weights: str | None) -> str | None:
+    if weights in (None, "", "stored"):
+        return None
+    if weights not in WHATIF_DTYPES:
+        raise HTTPException(400, f"weights must be one of stored, {', '.join(WHATIF_DTYPES)}")
+    return weights
+
+
+def _assumptions(T: int | None, B: int | None, dtype: str | None, weights: str | None = None) -> Assumptions:
     a = Assumptions()
     if T is not None:
         a.T = max(1, min(T, 1 << 22))
@@ -333,6 +343,7 @@ def _assumptions(T: int | None, B: int | None, dtype: str | None) -> Assumptions
         if dtype not in WHATIF_DTYPES:
             raise HTTPException(400, f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
         a.dtype = dtype
+    a.weights = _weights_ok(weights)
     return a
 
 
@@ -398,13 +409,14 @@ def summary(
     T: int | None = Query(default=None, description="sequence length for the cost estimates"),
     B: int | None = Query(default=None, description="batch size"),
     dtype: str | None = Query(default=None, description="activation / what-if dtype: bf16 f16 f32 f8 int8 int4"),
+    weights: str | None = Query(default=None, description="serve weights quantized to: int4 int8 f8 bf16 … (default: as stored)"),
     x_hf_token: str | None = Header(default=None),
 ):
     """Headline numbers for a model: params, active params, stacks, config
     essentials, and compute / memory / KV-cache estimates at T, B, dtype."""
     model_id = _check_id(model_id)
     doc = _load_doc(model_id, revision, x_hf_token, request)
-    out = summarize(doc, _assumptions(T, B, dtype))
+    out = summarize(doc, _assumptions(T, B, dtype, weights))
     out["urls"] = {
         "explore": f"/m/{model_id}",
         "graph": f"/api/graph/{model_id}",
@@ -423,6 +435,7 @@ def export_model(
     T: int | None = None,
     B: int | None = None,
     dtype: str | None = None,
+    weights: str | None = None,
     leaves_only: bool = Query(default=False, description="csv: drop container rows"),
     depth: int = Query(default=3, ge=1, le=8, description="dot: cluster depth"),
     download: bool = Query(default=False, description="send as an attachment"),
@@ -435,7 +448,7 @@ def export_model(
 
     model_id = _check_id(model_id)
     doc = _load_doc(model_id, revision, x_hf_token, request)
-    text, media = render(doc, format, _assumptions(T, B, dtype), leaves_only=leaves_only, depth=depth, pretty=True)
+    text, media = render(doc, format, _assumptions(T, B, dtype, weights), leaves_only=leaves_only, depth=depth, pretty=True)
     ext = {"csv": "csv", "md": "md", "markdown": "md", "json": "json", "dot": "dot"}[format]
     fname = model_id.replace("/", "--").replace(":", "_") + f".{ext}"
     headers = {"Content-Disposition": f"{'attachment' if download else 'inline'}; filename=\"{fname}\""}
@@ -456,6 +469,7 @@ def plan(
     T: int = Query(default=4096, ge=1, le=1 << 22),
     B: int = Query(default=1, ge=1, le=65536),
     dtype: str = Query(default="bf16"),
+    weights: str | None = Query(default=None, description="serve weights quantized to: int4 int8 f8 … (default: as stored)"),
     headroom: float = Query(default=0.1, ge=0, le=0.9),
     gpu: str | None = Query(default=None, description="GPU preset name (adds a roofline throughput estimate)"),
     x_hf_token: str | None = Header(default=None),
@@ -466,11 +480,12 @@ def plan(
     model_id = _check_id(model_id)
     if dtype not in WHATIF_DTYPES:
         raise HTTPException(400, f"dtype must be one of {', '.join(WHATIF_DTYPES)}")
+    w = _weights_ok(weights)
     doc = _load_doc(model_id, revision, x_hf_token, request)
-    req = PlanRequest(gpus=gpus, gpu_memory_gb=gpu_memory_gb, tp=tp, pp=pp, T=T, B=B, dtype=dtype, headroom=headroom)
+    req = PlanRequest(gpus=gpus, gpu_memory_gb=gpu_memory_gb, tp=tp, pp=pp, T=T, B=B, dtype=dtype, weights=w, headroom=headroom)
     out = plan_serving(doc, req).to_dict()
     if gpu:
-        tput = estimate_throughput(doc, gpu, tp=tp, T=T, B=B, dtype=dtype)
+        tput = estimate_throughput(doc, gpu, tp=tp, T=T, B=B, dtype=dtype, weights=w)
         if tput is None:
             raise HTTPException(400, f"unknown GPU preset '{gpu}'; one of: {', '.join(GPU_SPECS)}")
         out["throughput"] = tput.to_dict()
@@ -522,16 +537,19 @@ def compare_models(
     x_hf_token: str | None = Header(default=None),
 ):
     """Align two module trees (by path, then role) and list what changed,
-    was added, or removed — plus the config diff."""
+    was added, or removed — plus the config diff and `insights`: derived,
+    quantified takeaways ("GQA 8/32 vs 4/28 → KV cache per token 2.6× larger")."""
     from modelmap.compare import align, diff_markdown
 
     a, b = _check_id(a), _check_id(b)
     da = _load_doc(a, "main", x_hf_token, request)
     db = _load_doc(b, "main", x_hf_token, request)
+    from modelmap.insights import insights
+
     al = align(da, db)
     if format != "json":
         return PlainTextResponse(diff_markdown(da, db, al), media_type="text/markdown; charset=utf-8")
-    return {"a": a, "b": b, **al.to_dict(changed_only=changed_only)}
+    return {"a": a, "b": b, "insights": insights(da, db), **al.to_dict(changed_only=changed_only)}
 
 
 def _with_cache(entries: list[dict]) -> list[dict]:
@@ -565,7 +583,7 @@ def families():
 def sitemap(request: Request):
     from modelmap.zoo import FAMILIES, catalog
 
-    base = "https://modelmap.cc"
+    base = settings.public_url or "https://modelmap.cc"
     urls = [f"{base}/", f"{base}/models"] + [f"{base}/arch/{f['key']}" for f in FAMILIES] + [
         f"{base}/m/{e['model_id']}" for e in catalog() if e.get("model_id") and not str(e["model_id"]).startswith("local:")
     ]
@@ -598,14 +616,122 @@ def search(
     ]
 
 
+# ---------------------------------------------------------------- social cards (§25)
+
+_OG_HEADERS = {"Cache-Control": f"public, max-age={24 * 3600}"}
+
+
+def _og_cached(key: str, render) -> bytes:
+    """Render once per content hash; PNGs live next to the graph cache."""
+    d = cache.cache_dir() / "og"
+    p = d / f"{key}.png"
+    try:
+        return p.read_bytes()
+    except OSError:
+        pass
+    png = render()
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_bytes(png)
+        tmp.replace(p)
+    except OSError as e:  # read-only disk: serve without caching
+        log.warning("og cache write failed: %s", e)
+    return png
+
+
+def _png(png: bytes, cacheable: bool = True) -> Response:
+    return Response(png, media_type="image/png", headers=_OG_HEADERS if cacheable else {"Cache-Control": "no-store"})
+
+
+@app.get("/og/default.png", include_in_schema=False)
+def og_default():
+    from modelmap.og import render_default_card
+
+    return _png(_og_cached(f"default-v{__version__}", render_default_card))
+
+
+@app.get("/og/m/{model_id:path}.png", include_in_schema=False)
+def og_model(model_id: str):
+    """The model's card — from the cache only: a crawler won't wait for an
+    extraction, so an unmapped model unfurls into the generic card (uncached,
+    so the real one replaces it once somebody has opened the page)."""
+    from modelmap.og import render_default_card, render_model_card
+
+    model_id = model_id.strip("/")
+    raw = cache.get_bytes(model_id, "main") if not is_local(model_id) else None
+    if raw is None:
+        return _png(_og_cached(f"default-v{__version__}", render_default_card), cacheable=False)
+    key = "m-" + hashlib.sha1(raw).hexdigest()[:20]
+    return _png(_og_cached(key, lambda: render_model_card(cache.get(model_id, "main"))))
+
+
+@app.get("/og/arch/{key}.png", include_in_schema=False)
+def og_family(key: str):
+    from modelmap.og import render_default_card, render_family_card
+    from modelmap.zoo import FAMILIES, catalog
+
+    fam = next((f for f in FAMILIES if f["key"] == key), None)
+    if fam is None:
+        return _png(_og_cached(f"default-v{__version__}", render_default_card), cacheable=False)
+    entries = {e["model_id"]: e for e in catalog()}
+    sig = hashlib.sha1(repr([(m, (entries.get(m) or {}).get("params_total")) for m in fam["members"]]).encode()).hexdigest()[:16]
+    return _png(_og_cached(f"arch-{key}-{sig}", lambda: render_family_card(fam, entries)))
+
+
+@app.get("/og/compare.png", include_in_schema=False)
+def og_compare(a: str = Query(), b: str = Query()):
+    from modelmap.og import render_compare_card, render_default_card
+
+    a, b = a.strip("/"), b.strip("/")
+    ra = cache.get_bytes(a, "main") if not is_local(a) else None
+    rb = cache.get_bytes(b, "main") if not is_local(b) else None
+    if ra is None or rb is None:
+        return _png(_og_cached(f"default-v{__version__}", render_default_card), cacheable=False)
+    key = "cmp-" + hashlib.sha1(ra + rb).hexdigest()[:20]
+    return _png(_og_cached(key, lambda: render_compare_card(cache.get(a, "main"), cache.get(b, "main"))))
+
+
+@app.get("/badge/{model_id:path}.svg", include_in_schema=False)
+def badge(model_id: str):
+    """README badge: [ modelmap | 8.19B · GQA 4× · 36 layers ] — links to the map."""
+    from modelmap.og import badge_svg, badge_value
+
+    model_id = model_id.strip("/")
+    svg = badge_svg("modelmap", badge_value(model_id) if not is_local(model_id) else "view architecture")
+    return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=3600"})
+
+
 _web = Path(__file__).parent / "web"
 if (_web / "index.html").exists():  # SPA build output (web/ → npm run build)
+    _index_src: dict[str, object] = {"mtime": 0.0, "html": ""}
+
+    def _index_html() -> str:
+        # re-read when the build changes (dev: `npm run build` under a running server)
+        p = _web / "index.html"
+        mtime = p.stat().st_mtime
+        if mtime != _index_src["mtime"]:
+            _index_src["html"] = p.read_text(encoding="utf-8")
+            _index_src["mtime"] = mtime
+        return _index_src["html"]  # type: ignore[return-value]
+
+    def _index(request: Request) -> Response:
+        """index.html with this URL's og:/twitter: tags — crawlers don't run
+        JS, so the unfurl (title, description, card image) is decided here."""
+        from modelmap.og import inject_meta, meta_for
+
+        site = settings.public_url or "https://modelmap.cc"
+        html = inject_meta(_index_html(), meta_for(request.url.path, dict(request.query_params), site=site))
+        return Response(html, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache"})
+
     # catch-all so client routes like /m/Qwen/Qwen3-8B survive a refresh;
     # /api/* routes are declared above and win
     @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
+    def spa(path: str, request: Request):
         candidate = (_web / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(_web):
+            if candidate.name == "index.html":
+                return _index(request)
             # Vite hashes asset filenames → immutable; fonts are stable too
             headers = (
                 {"Cache-Control": "public, max-age=31536000, immutable"}
@@ -613,4 +739,4 @@ if (_web / "index.html").exists():  # SPA build output (web/ → npm run build)
                 else {"Cache-Control": "no-cache"}
             )
             return FileResponse(candidate, headers=headers)
-        return FileResponse(_web / "index.html", headers={"Cache-Control": "no-cache"})
+        return _index(request)

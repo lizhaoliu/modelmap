@@ -13,6 +13,7 @@ from typing import Any
 
 from modelmap import cache
 from modelmap.analytics import LINEAR_ATTN, Assumptions, _num, build_index, compute_costs
+from modelmap.insights import profile, recipe
 
 log = logging.getLogger(__name__)
 
@@ -178,15 +179,16 @@ def catalog_entry(doc: dict) -> dict[str, Any]:
         "fidelity": doc.get("fidelity"),
         "params_total": doc.get("params_total"),
         "active_params": round(rep.root.active_params),
-        "layers": _num(c, "num_hidden_layers", "n_layer"),
-        "hidden": _num(c, "hidden_size", "n_embd"),
-        "heads": _num(c, "num_attention_heads", "n_head"),
+        "layers": _num(c, "num_hidden_layers", "n_layer", "num_layers", "encoder_layers"),
+        "hidden": _num(c, "hidden_size", "n_embd", "d_model"),
+        "heads": _num(c, "num_attention_heads", "n_head", "num_heads", "encoder_attention_heads"),
         "kv_heads": _num(c, "num_key_value_heads"),
         "context": _num(c, "max_position_embeddings", "n_positions"),
         "vocab": _num(c, "vocab_size"),
         "kv_bytes_per_token": rep.root.kv_per_token,
         "macs_per_token": rep.root.macs / 4096,
         "tags": structural_tags(doc),
+        "recipe": recipe(profile(doc)),
     }
 
 

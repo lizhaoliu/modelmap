@@ -4,7 +4,7 @@
  * CLI and MCP agree (web/tests/plan.test.ts pins the same fixtures).
  */
 import type { GraphDoc, GraphIndex } from '../types'
-import { computeCosts, type Assumptions } from './cost'
+import { computeCosts, textConfig, type Assumptions } from './cost'
 
 export interface PlanRequest {
   gpus: number
@@ -15,6 +15,9 @@ export interface PlanRequest {
   B: number
   dtypeLabel: string
   bytes: number
+  /** weights quantized to this dtype ('int4', …); 'stored' / undefined = as shipped */
+  weights?: string
+  weightBytes?: number
   headroom: number
 }
 
@@ -56,9 +59,9 @@ const num = (c: Record<string, unknown>, ...keys: string[]) => {
 
 export function planServing(doc: GraphDoc, index: GraphIndex, req: PlanRequest): Plan {
   const notes: string[] = []
-  const a: Assumptions = { T: req.T, B: req.B, bytes: req.bytes, dtypeLabel: req.dtypeLabel }
+  const a: Assumptions = { T: req.T, B: req.B, bytes: req.bytes, dtypeLabel: req.dtypeLabel, weights: req.weights, weightBytes: req.weightBytes }
   const rep = computeCosts(doc, index, a)
-  const c = doc.config as Record<string, unknown>
+  const c = textConfig(doc)
   const tp = Math.max(1, req.tp), pp = Math.max(1, req.pp)
   if (tp * pp !== req.gpus) notes.push(`tp × pp = ${tp * pp} ≠ gpus = ${req.gpus}; planning for ${tp * pp} GPUs`)
   const cap = req.gpuMemoryGb * 2 ** 30 * (1 - req.headroom)
@@ -146,7 +149,9 @@ export function planServing(doc: GraphDoc, index: GraphIndex, req: PlanRequest):
   }
   if (req.gpuMemoryGb <= 0) notes.push('GPU memory is 0 — unified-memory devices: compare totals against system RAM')
   notes.push(
-    'activations = largest single non-logits activation at T, B (prefill peak; decode needs far less); weights at stored dtypes; KV at the activation dtype; no framework workspace beyond the headroom',
+    'activations = largest single non-logits activation at T, B (prefill peak; decode needs far less); '
+      + (req.weightBytes != null ? `weights quantized to ${req.weights}` : 'weights at stored dtypes')
+      + '; KV at the activation dtype; no framework workspace beyond the headroom',
   )
   return {
     request: req, fits, stages, weightBytes: rep.root.paramBytes, kvBytes: rep.root.kvPerToken * tokens,

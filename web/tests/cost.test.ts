@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { gunzipSync } from 'node:zlib'
 import { readFileSync } from 'node:fs'
 import { buildIndex, type GraphDoc } from '../src/types'
-import { computeCosts, DEFAULT_ASSUMPTIONS } from '../src/analytics/cost'
+import { computeCosts, DEFAULT_ASSUMPTIONS, lensValue, textConfig } from '../src/analytics/cost'
 
 const load = (name: string): GraphDoc =>
   JSON.parse(gunzipSync(readFileSync(new URL(`./fixtures/${name}.graph.json.gz`, import.meta.url))).toString())
@@ -98,5 +98,46 @@ describe('quantized dtypes', () => {
     // 8.19B params at 4.5 bits ≈ 4.3 GiB of weights
     expect(rep.root.paramBytes / 2 ** 30).toBeGreaterThan(4.2)
     expect(rep.root.paramBytes / 2 ** 30).toBeLessThan(4.4)
+  })
+})
+
+describe('serving precision + vram lens (§26)', () => {
+  it('"serve weights as int4" re-prices every weight tensor; activations and KV keep the activation dtype', () => {
+    const doc = load('qwen3-8b')
+    const index = buildIndex(doc)
+    const stored = computeCosts(doc, index, { ...DEFAULT_ASSUMPTIONS, T: 4096 })
+    const int4 = computeCosts(doc, index, { ...DEFAULT_ASSUMPTIONS, T: 4096, weights: 'int4', weightBytes: 0.5 })
+    expect(stored.root.paramBytes / 1e9).toBeCloseTo(16.38, 1)
+    expect(int4.root.paramBytes / 1e9).toBeCloseTo(4.095, 2) // pinned with analytics.py
+    expect(int4.root.kvPerToken).toBe(stored.root.kvPerToken)
+    expect(int4.root.actBytes).toBe(stored.root.actBytes)
+  })
+
+  it('vram lens value = weights + KV cache at T × B, so attention grows with context and MLP does not', () => {
+    const doc = load('qwen3-8b')
+    const index = buildIndex(doc)
+    const attn = doc.nodes.find((n) => n.id === 'model.layers.0.self_attn')!
+    const mlp = doc.nodes.find((n) => n.id === 'model.layers.0.mlp')!
+    const at = (T: number) => {
+      const rep = computeCosts(doc, index, { ...DEFAULT_ASSUMPTIONS, T })
+      return { attn: lensValue('vram', attn, rep.byNode.get(attn.id), rep.assumptions), mlp: lensValue('vram', mlp, rep.byNode.get(mlp.id), rep.assumptions), rep }
+    }
+    const short = at(4096), long = at(131072)
+    expect(long.mlp).toBe(short.mlp)
+    expect(long.attn).toBeGreaterThan(short.attn)
+    // one layer's KV at 128k: 2 × 8 kv heads × 128 × 2 bytes × 131072 = 512 MiB on top of its weights
+    expect(long.attn - short.attn).toBeCloseTo(2 * 8 * 128 * 2 * (131072 - 4096), -3)
+    // at 128k the cache for the whole model outweighs the bf16 weights (18 GB vs 16.4 GB)
+    expect(long.rep.root.kvPerToken * 131072).toBeGreaterThan(long.rep.root.paramBytes)
+  })
+
+  it('VLM configs nest the language model under text_config — KV and attention compute still count', () => {
+    const doc = load('qwen2.5-vl-3b')
+    const index = buildIndex(doc)
+    const rep = computeCosts(doc, index, { ...DEFAULT_ASSUMPTIONS, T: 4096 })
+    // 36 layers × 2 × 2 kv heads × 128 × 2 bytes
+    expect(rep.root.kvPerToken).toBe(36 * 2 * 2 * 128 * 2)
+    expect(rep.kvLayers).toBe(36)
+    expect(textConfig(doc).num_key_value_heads).toBe(2)
   })
 })
