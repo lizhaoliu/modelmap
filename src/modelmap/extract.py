@@ -129,8 +129,13 @@ def extract_graph(
             try:
                 files = _list_files(src, revision, token)
             except Exception as le:
-                # a repo that doesn't exist / isn't visible: surface the Hub's answer
-                raise le if "not found" in str(le).lower() or is_auth_error(le) else e
+                # surface the Hub's answer when it is the informative one — a
+                # missing/private repo, a gated repo, or a rate-limited server
+                # (the server maps 429s to a friendly 503); otherwise the
+                # config error is the story
+                if "not found" in str(le).lower() or is_auth_error(le) or "429" in str(le):
+                    raise le
+                raise e
         variants = gguf.variants_of(files)
         if variants:
             return _extract_gguf(src, revision, token, files, variants, seq_len, notes)

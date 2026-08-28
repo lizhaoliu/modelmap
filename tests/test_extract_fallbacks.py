@@ -177,3 +177,18 @@ def test_nothing_readable_message(monkeypatch):
     )
     with pytest.raises(ValueError, match="no transformers-loadable config, no safetensors, and no GGUF"):
         _weights_only(parse_model_id("o/onnx"), "main", None, [], None)
+
+
+def test_rate_limited_listing_surfaces_the_rate_limit(monkeypatch):
+    """When the Hub 429s the file listing mid-degrade, the rate limit is the
+    story (the server maps it to a friendly 503) — not the config error."""
+    monkeypatch.setattr(
+        extract.AutoConfig, "from_pretrained",
+        classmethod(lambda cls, *a, **k: (_ for _ in ()).throw(ValueError("Unrecognized model"))),
+    )
+    monkeypatch.setattr(
+        extract, "_list_files",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("429 Too Many Requests: rate limit; retry after 3600")),
+    )
+    with pytest.raises(RuntimeError, match="429"):
+        extract_graph("o/limited")
