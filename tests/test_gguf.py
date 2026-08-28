@@ -141,3 +141,13 @@ def test_hf_module_mapping_and_dtypes():
     assert nodes[1].dtype == "q4_k"  # the coarser of the fused experts' types
     assert nodes[2].dtype == "f32"
     assert notes == []
+
+
+def test_choose_variant_from_a_pasted_file_stem():
+    """M19: 'owner/repo/model-Q8_0' pastes arrive as variant 'model-Q8_0';
+    the contained quant label decides, longest label winning."""
+    from modelmap.gguf import choose_variant
+
+    variants = {"Q8_0": ["a-Q8_0.gguf"], "BF16": ["a-BF16.gguf"], "F16": ["a-F16.gguf"]}
+    assert choose_variant(variants, "Ornith-1.5-35B-Q8_0") == "Q8_0"
+    assert choose_variant(variants, "model-BF16") == "BF16"

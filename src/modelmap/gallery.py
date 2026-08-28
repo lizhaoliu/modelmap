@@ -48,7 +48,9 @@ _lock = threading.Lock()
 def _fetch() -> list[dict]:
     from huggingface_hub import HfApi
 
-    models = HfApi().list_models(
+    from modelmap.settings import settings
+
+    models = HfApi(token=settings.hf_token).list_models(
         sort="trendingScore", limit=60,
         expand=["trendingScore", "gated", "pipeline_tag", "library_name", "downloads", "likes", "config"],
     )

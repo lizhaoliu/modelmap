@@ -5,6 +5,7 @@ import gzip
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,9 +47,19 @@ def client(monkeypatch, tmp_path):
 
 
 def test_bad_model_id_rejected(client):
-    assert client.get("/api/graph/a/b/c").status_code == 400
     assert client.get("/api/graph/bad id/x").status_code == 400
+    assert client.get("/api/graph/:::").status_code == 400
     assert client.get("/api/graph/gpt2").status_code == 200  # legacy top-level ids are valid
+
+
+def test_pasted_shapes_normalize_onto_one_cache_entry(client):
+    """URLs, ollama-style ids and typographic dashes are what people actually
+    paste; they must resolve — and land on the canonical id's cache entry."""
+    assert client.get("/api/graph/https://huggingface.co/o/name/tree/main").status_code == 200
+    assert client.get("/api/graph/hf.co/o/name").status_code == 200
+    assert client.get("/api/graph/o/na‑me").status_code == 200  # non-breaking hyphen
+    assert client.calls.count("o/name") == 1  # both URL spellings, one extraction
+    assert "o/na-me" in client.calls
 
 
 def test_extract_then_serve_pregzipped_with_etag(client):
@@ -312,3 +323,41 @@ def test_og_cards_and_meta_tags(api):
         assert "8.19B params" in r.text  # cached summary feeds the description
         assert '<link rel="canonical" href="https://modelmap.cc/m/Qwen/Qwen3-8B" />' in r.text
         assert "<title>modelmap</title>" in api.get("/").text
+
+
+# ------------------------------------------------------------- search proxy (M19)
+
+
+def test_search_caches_and_serves_stale_on_hub_429(client, monkeypatch):
+    from huggingface_hub import HfApi
+
+    hits = [SimpleNamespace(id="Qwen/Qwen3-8B", downloads=1, likes=2, pipeline_tag="text-generation")]
+    calls = []
+
+    def fake_list_models(self, **kw):
+        calls.append(kw)
+        return iter(hits)
+
+    server._search_cache.clear()
+    monkeypatch.setattr(HfApi, "list_models", fake_list_models)
+    r = client.get("/api/search?q=qwen")
+    assert r.status_code == 200 and r.json()[0]["id"] == "Qwen/Qwen3-8B"
+    r = client.get("/api/search?q=QWEN")  # case-insensitive cache hit
+    assert r.status_code == 200
+    assert len(calls) == 1
+
+    # the Hub starts rate-limiting: cached queries keep working (stale), and
+    # uncached ones get a friendly 503 with Retry-After, never a raw 500
+    def rate_limited(self, **kw):
+        raise RuntimeError("429 Client Error: Too Many Requests for url https://huggingface.co/api/models")
+
+    monkeypatch.setattr(HfApi, "list_models", rate_limited)
+    monkeypatch.setattr("modelmap.hubio.time.sleep", lambda _: None)
+    server._search_cache[("qwen", 10)] = (0.0, [{"id": "stale"}])  # expired entry
+    r = client.get("/api/search?q=qwen")
+    assert r.status_code == 200 and r.json() == [{"id": "stale"}]
+    server._search_cache.clear()
+    r = client.get("/api/search?q=nocache")
+    assert r.status_code == 503
+    assert "rate-limiting" in r.json()["detail"]
+    assert r.headers.get("retry-after")

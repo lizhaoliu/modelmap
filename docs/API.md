@@ -15,6 +15,12 @@ Interactive reference for the hosted API: **https://modelmap.cc/docs** (OpenAPI)
 | `owner/name:Q4_K_M` | a **GGUF** variant in the repo — config rebuilt from the GGUF header, real quant dtype per module (`Q4_K · 4.5 bpw`). Any label listed in the document's `variants` (case-insensitive); default `Q4_K_M` when present |
 | `local:/path/to/ckpt` | a local checkpoint directory, a `.safetensors` file or a `.gguf` — **only** where local paths are enabled (the CLI always; `modelmap serve` on loopback; never on the hosted site) |
 
+Pasted shapes normalize onto that grammar before anything else happens: full Hub URLs
+(`https://huggingface.co/owner/name`, file-tree links with `/tree/…` or `/blob/…`), ollama-style ids
+(`hf.co/owner/name:Q4_K_M`), typographic dashes and zero-width characters from rich-text copies, and paths to a
+GGUF file inside a repo (`owner/repo/model-Q8_0.gguf` → `owner/repo:model-Q8_0`). All spellings share one cache
+entry under the canonical id.
+
 ## REST
 
 All endpoints are `GET`, CORS-open to any origin, and return JSON unless noted.

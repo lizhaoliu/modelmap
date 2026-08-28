@@ -19,6 +19,41 @@ _HUB_ID = re.compile(
     r"^(?P<repo>[A-Za-z0-9][\w.\-]{0,95}(/[A-Za-z0-9][\w.\-]{0,95})?)(?::(?P<variant>[A-Za-z0-9][\w.\-]{0,63}))?$"
 )
 
+# what people actually paste: full Hub URLs, ollama-style "hf.co/owner/name:Q4",
+# ids copied through word processors that swapped the hyphens for typographic
+# dashes, links deep into a repo's file tree
+_URL_PREFIX = re.compile(r"^(?:https?://)?(?:www\.)?(?:huggingface\.co|hf\.co)/", re.I)
+_URL_TAIL = re.compile(r"/(?:tree|blob|resolve|raw|commit|discussions|blame)(?:/.*)?$")
+_CHARMAP = {
+    **dict.fromkeys(map(ord, "‐‑‒–—―−"), "-"),  # dash lookalikes
+    **dict.fromkeys(map(ord, "​‌‍⁠﻿"), None),  # zero-width
+}
+_QUANTISH = re.compile(r"(?i)(?:^|[-_.])(i?q\d|f16|bf16|f32|fp\d|mxfp\d|nvfp\d|int\d)")
+
+
+def normalize_model_id(model_id: str) -> str:
+    """Canonical 'owner/name[:variant]' from the many shapes users paste."""
+    s = model_id.strip().translate(_CHARMAP)
+    if s.startswith(LOCAL_PREFIX):
+        return s
+    s = _URL_PREFIX.sub("", s)
+    s = s.split("?", 1)[0].split("#", 1)[0]
+    s = _URL_TAIL.sub("", s).strip("/")
+    parts = s.split("/")
+    if len(parts) > 2:
+        # a path into the repo: keep owner/name; a GGUF-looking file name
+        # becomes the variant request ("…-GGUF/model-Q8_0.gguf" → ":model-Q8_0")
+        tail = parts[-1]
+        base, dot, ext = tail.rpartition(".")
+        s = "/".join(parts[:2])
+        if ext.lower() == "gguf" and base:
+            s += ":" + base
+        elif ":" not in tail and _QUANTISH.search(tail):
+            s += ":" + tail
+        elif ":" in tail:  # ".../file.gguf:Q4" or a variant on the tail itself
+            s += ":" + tail.rsplit(":", 1)[1]
+    return s
+
 
 class LocalPathError(ValueError):
     pass
@@ -39,7 +74,7 @@ def is_local(model_id: str) -> bool:
 
 
 def parse_model_id(model_id: str, *, allow_local: bool = False) -> Source:
-    model_id = model_id.strip()
+    model_id = normalize_model_id(model_id)
     if model_id.startswith(LOCAL_PREFIX):
         if not allow_local:
             raise LocalPathError("local paths are not enabled on this server")
@@ -54,4 +89,4 @@ def parse_model_id(model_id: str, *, allow_local: bool = False) -> Source:
 
 
 def valid_hub_id(model_id: str) -> bool:
-    return _HUB_ID.match(model_id.strip()) is not None
+    return _HUB_ID.match(normalize_model_id(model_id)) is not None

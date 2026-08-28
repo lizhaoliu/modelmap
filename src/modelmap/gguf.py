@@ -309,6 +309,11 @@ def choose_variant(variants: dict[str, list[str]], requested: str | None) -> str
         for k in variants:  # substring match on the label or a file name
             if requested.lower() in k.lower() or any(requested.lower() in f.lower() for f in variants[k]):
                 return k
+        # the reverse: a pasted file name ("model-Q8_0") *contains* a label —
+        # the longest match is the most specific ("BF16" beats "F16")
+        cands = [k for k in variants if len(k) >= 2 and k.lower() in requested.lower()]
+        if cands:
+            return max(cands, key=len)
         raise GGUFError(f"no GGUF variant matches '{requested}'; available: {', '.join(variants)}")
     for p in _PREFERRED:
         if p in variants:

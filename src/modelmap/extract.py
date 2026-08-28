@@ -35,7 +35,7 @@ from transformers import AutoConfig, AutoModel
 
 from modelmap import analytics, collapse, gguf, trace, weights_view
 from modelmap.annotate import annotate, load_plugins
-from modelmap.hubio import with_retries
+from modelmap.hubio import is_auth_error, with_retries
 from modelmap.ids import LOCAL_PREFIX, LocalPathError, Source, parse_model_id  # noqa: F401
 from modelmap.schema import SCHEMA_VERSION, Edge, Graph, Node
 
@@ -121,19 +121,20 @@ def extract_graph(
         # model_type, diffusers-style pipelines, brand-new architectures), and
         # local dirs without a config.json; all degrade to the weights view —
         # or to the GGUF path when that is what the repo holds
+        if is_auth_error(e):
+            # a gated repo: degrading would mask the one message the user can
+            # act on (accept the license, add a token) behind a header failure
+            raise
         if files is None:
             try:
                 files = _list_files(src, revision, token)
             except Exception as le:
                 # a repo that doesn't exist / isn't visible: surface the Hub's answer
-                raise le if "not found" in str(le).lower() or "gated" in str(le).lower() or "401" in str(le) else e
+                raise le if "not found" in str(le).lower() or is_auth_error(le) else e
         variants = gguf.variants_of(files)
         if variants:
             return _extract_gguf(src, revision, token, files, variants, seq_len, notes)
-        if "trust_remote_code" in str(e):
-            notes.append("repo requires trust_remote_code; refused — weights view only")
-        else:
-            notes.append(f"not a transformers-loadable config ({e}) — weights view only")
+        notes.append(_degrade_note(e))
         return _weights_only(src, revision, token, notes, _weights_format(files))
     fmt = _weights_format(files) if files is not None else None
 
@@ -189,6 +190,26 @@ def _mixed_layers(headers) -> bool:
     return any(len(v) > 1 for v in by_role.values())
 
 
+_UNKNOWN_TYPE = re.compile(r"model type `([^`]+)` but Transformers does not recognize")
+
+
+def _degrade_note(e: Exception) -> str:
+    """Why the config rung failed, in one honest sentence. Transformers' own
+    error ends with several lines of pip-upgrade advice that is wrong for
+    architectures that only exist in a vendor's codebase — don't parrot it."""
+    msg = str(e)
+    if "trust_remote_code" in msg:
+        return "repo requires trust_remote_code; refused — weights view only"
+    m = _UNKNOWN_TYPE.search(msg)
+    if m:
+        return (
+            f"model type `{m.group(1)}` isn't in transformers {transformers.__version__} — "
+            "either brand-new, or loadable only through the vendor's own code — weights view only"
+        )
+    short = msg.split("You can update Transformers")[0].strip().rstrip(".")
+    return f"not a transformers-loadable config ({short}) — weights view only"
+
+
 def _weights_only(src: Source, revision: str, token: str | None, notes: list[str], fmt: str | None) -> Graph:
     if src.local:
         tensors = weights_view.local_safetensors(src.repo)
@@ -201,7 +222,22 @@ def _weights_only(src: Source, revision: str, token: str | None, notes: list[str
             )
             raise LocalPathError(f"{src.repo}: no config.json transformers can load and no safetensors files{hint}")
         return weights_view.weights_graph(src.model_id, revision=revision, notes=notes, tensors=tensors, weights_format=fmt)
-    return weights_view.weights_graph(src.repo, revision=revision, token=token, notes=notes, weights_format=fmt)
+    try:
+        return weights_view.weights_graph(src.repo, revision=revision, token=token, notes=notes, weights_format=fmt)
+    except ValueError as e:
+        if "no safetensors" not in str(e):
+            raise
+        # tell the user what the repo *does* hold and why that isn't readable
+        if fmt == "pytorch":
+            raise ValueError(
+                f"'{src.repo}' ships only pickle checkpoints (.bin/.pt) — those can't be inspected "
+                "without downloading and executing them; modelmap reads transformers configs, "
+                "safetensors, and GGUF"
+            ) from e
+        raise ValueError(
+            f"'{src.repo}' has no transformers-loadable config, no safetensors, and no GGUF — "
+            "nothing modelmap can read without downloading weights"
+        ) from e
 
 
 def _extract_gguf(
@@ -460,7 +496,10 @@ def _apply_dtypes(src: Source, revision, token, config, nodes, notes) -> bool:
                 for tname, info in fm.tensors.items()
             ]
     except Exception as e:
-        notes.append(f"no safetensors metadata: {type(e).__name__}")
+        if is_auth_error(e):  # public config, gated weights (meta-llama style)
+            notes.append("weight headers are gated — dtypes shown are config.json's declaration")
+        else:
+            notes.append(f"no safetensors metadata: {type(e).__name__}")
         return False
     qlabel = _quant_label(config)
     # checkpoints in a vendor layout (DeepSeek's "layers.N.ffn.experts.3.w1")

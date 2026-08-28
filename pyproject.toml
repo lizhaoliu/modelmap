@@ -1,13 +1,13 @@
 [project]
 name = "modelmap"
-version = "0.5.0"
+version = "0.6.0"
 description = "Interactive, animated architecture maps for any Hugging Face model — no weights downloaded"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "torch>=2.6",
-    "transformers>=4.55",
+    "transformers>=5.16.1",
     "huggingface_hub>=0.30",
     "fastapi>=0.115",
     "uvicorn>=0.30",

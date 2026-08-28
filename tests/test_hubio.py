@@ -59,3 +59,38 @@ def test_short_hub_rate_limits_are_waited_out(monkeypatch):
     import pytest
     with pytest.raises(RuntimeError):
         hubio.with_retries(long_wait)
+
+
+# ---------------------------------------------------------------- is_auth_error
+
+
+def test_auth_error_by_exception_type():
+    from modelmap.hubio import is_auth_error
+
+    GatedRepoError = type("GatedRepoError", (Exception,), {})
+    assert is_auth_error(GatedRepoError("403 Client Error"))
+
+
+def test_auth_error_through_the_cause_chain():
+    """transformers wraps the hub's GatedRepoError in a plain OSError; the
+    detector must walk __cause__/__context__ to find it."""
+    from modelmap.hubio import is_auth_error
+
+    GatedRepoError = type("GatedRepoError", (Exception,), {})
+    try:
+        try:
+            raise GatedRepoError("401 Client Error")
+        except GatedRepoError as inner:
+            raise OSError("could not load config") from inner
+    except OSError as e:
+        assert is_auth_error(e)
+
+
+def test_auth_error_by_message():
+    from modelmap.hubio import is_auth_error
+
+    assert is_auth_error(OSError("You are trying to access a gated repo."))
+    assert is_auth_error(OSError("401 Client Error for url https://huggingface.co/x/y"))
+    assert not is_auth_error(OSError("404 Repository Not Found"))
+    assert not is_auth_error(ValueError("model type `breeze` is unknown"))
+    assert not is_auth_error(None)

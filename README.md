@@ -87,6 +87,10 @@ docker compose up --build
   sharding, gradient-checkpointing and flash-attention toggles → per-GPU weights / grads / optimizer /
   activations, largest micro-batch, training tok/s. Same numbers from `modelmap train`, `modelmap plan --gpu`,
   `/api/train`, and the MCP `plan_finetune` tool (Python + TS twins pinned to the same fixtures).
+- **Paste what you have** — a full `huggingface.co/…` URL (file-tree links included), an ollama-style
+  `hf.co/owner/name:Q4_K_M` id, even an id that picked up typographic dashes in a doc: everything normalizes to
+  the canonical `owner/name[:variant]` before loading. Gated repos answer with the actual fix (accept the license,
+  add your token) instead of a header error.
 - **Quantized checkpoints** — `owner/name:Q4_K_M` opens a GGUF variant (a picker lists the repo's quants): the
   config is rebuilt from the GGUF header via range reads, the module tree and trace are real, and every module
   shows its actual quant type and bits per weight, so the Cost lens reports true on-disk bytes. FP8 / AWQ / GPTQ /

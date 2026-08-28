@@ -44,6 +44,14 @@ class Settings:
     # absolute origin used in og:url / og:image and the sitemap (self-hosters
     # set MODELMAP_PUBLIC_URL=https://maps.example.com); empty → modelmap.cc
     public_url: str = field(default_factory=lambda: os.environ.get("MODELMAP_PUBLIC_URL", "").rstrip("/"))
+    # server-side Hub token for metadata calls (search, trending, config and
+    # header reads) — authenticated requests get a far higher rate limit than
+    # a shared egress IP. Deliberately NOT read from the generic HF_TOKEN:
+    # setting this is an explicit opt-in, because gated/private repos this
+    # token's account can see become viewable by every visitor of the
+    # deployment. Use a fine-grained READ token with no repo access.
+    # Per-request X-HF-Token headers still take precedence.
+    hf_token: str | None = field(default_factory=lambda: os.environ.get("MODELMAP_HF_TOKEN") or None)
 
 
 settings = Settings()

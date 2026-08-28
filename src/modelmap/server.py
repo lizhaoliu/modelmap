@@ -123,9 +123,10 @@ def _extract_job(
     allow_local: bool = False, trust_remote_code: bool = False,
 ) -> dict:
     from modelmap.extract import extract_graph
+    from modelmap.settings import settings as worker_settings  # spawn: fresh read of the env
 
     return extract_graph(
-        model_id, revision=revision, token=token,
+        model_id, revision=revision, token=token or worker_settings.hf_token,
         allow_local=allow_local, trust_remote_code=trust_remote_code,
     ).to_json_dict()
 
@@ -237,6 +238,8 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
             )
         if name in ("LocalPathError", "GGUFError"):
             raise HTTPException(422, msg)
+        if f"'{model_id}'" in msg:  # our ladder already names the repo; don't say it twice
+            raise HTTPException(422, msg)
         raise HTTPException(422, f"could not extract '{model_id}': {name}: {msg}")
     finally:
         if owner:
@@ -319,10 +322,12 @@ def health():
 def _check_id(model_id: str) -> str:
     model_id = model_id.strip("/")
     try:
-        parse_model_id(model_id, allow_local=settings.allow_local)
+        src = parse_model_id(model_id, allow_local=settings.allow_local)
     except ValueError as e:  # LocalPathError is a ValueError
         raise HTTPException(400 if "must look like" in str(e) else 403 if "not enabled" in str(e) else 404, str(e))
-    return model_id
+    # the canonical spelling: pasted URLs, ollama-style ids and typographic
+    # dashes all collapse onto one cache entry / document id
+    return src.model_id
 
 
 def _weights_ok(weights: str | None) -> str | None:
@@ -600,6 +605,14 @@ def gallery():
     return {"trending": _with_cache(trending()), "classics": _with_cache(CLASSICS)}
 
 
+# search proxy cache: repeat queries (every visitor types "qwen") stop costing
+# Hub API calls, and a rate-limited Hub degrades to stale results, not a 500
+_search_cache: dict[tuple[str, int], tuple[float, list]] = {}
+_search_lock = threading.Lock()
+_SEARCH_TTL_S = 300
+_SEARCH_CACHE_MAX = 4096
+
+
 @app.get("/api/search")
 def search(
     request: Request, q: str = Query(min_length=1), limit: int = Query(default=10, le=50)
@@ -607,13 +620,39 @@ def search(
     ok, retry = _limiter.allow(_client_key(request))
     if not ok:
         raise HTTPException(429, "slow down", headers={"Retry-After": str(int(retry) + 1)})
+    key = (q.strip().lower(), limit)
+    now = time.time()
+    with _search_lock:
+        hit = _search_cache.get(key)
+    if hit and now - hit[0] < _SEARCH_TTL_S:
+        return hit[1]
     from huggingface_hub import HfApi
 
-    models = HfApi().list_models(search=q, limit=limit, sort="downloads")
-    return [
+    from modelmap.hubio import with_retries
+
+    try:
+        models = with_retries(
+            lambda: list(HfApi(token=settings.hf_token).list_models(search=q, limit=limit, sort="downloads"))
+        )
+    except Exception as e:
+        if hit is not None:  # stale beats nothing
+            return hit[1]
+        if "429" in str(e):
+            raise HTTPException(
+                503, "the Hugging Face Hub is rate-limiting search right now; try again shortly",
+                headers={"Retry-After": "30"},
+            )
+        raise HTTPException(502, "Hub search is unavailable right now; try again shortly")
+    out = [
         {"id": m.id, "downloads": m.downloads, "likes": m.likes, "pipeline_tag": m.pipeline_tag}
         for m in models
     ]
+    with _search_lock:
+        if len(_search_cache) >= _SEARCH_CACHE_MAX:  # bound memory: shed the oldest half
+            for k in sorted(_search_cache, key=lambda k: _search_cache[k][0])[: _SEARCH_CACHE_MAX // 2]:
+                del _search_cache[k]
+        _search_cache[key] = (now, out)
+    return out
 
 
 # ---------------------------------------------------------------- social cards (§25)

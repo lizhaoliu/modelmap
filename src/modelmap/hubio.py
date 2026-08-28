@@ -35,6 +35,24 @@ def _transport_errors() -> tuple[type[BaseException], ...]:
     return tuple(errs)
 
 
+def is_auth_error(e: BaseException | None) -> bool:
+    """True when an exception (or anything in its cause chain) is the Hub
+    refusing access: a gated repo awaiting license acceptance, or a request
+    that needs a token. These must surface to the caller with their original
+    message — the fallback ladder degrading them into "no safetensors headers"
+    hides the one thing the user can actually fix."""
+    seen: set[int] = set()
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if type(e).__name__ == "GatedRepoError":
+            return True
+        low = str(e).lower()
+        if "gated" in low or ("401" in low and "huggingface.co" in low):
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
+
 MAX_RATE_LIMIT_WAIT_S = 20.0
 
 

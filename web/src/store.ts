@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
-import { fetchGraph } from './api'
+import { fetchGraph, normalizeModelId } from './api'
 import { buildIndex, type GraphDoc, type GraphIndex } from './types'
 
 export type DiffStatus = 'same' | 'changed' | 'added' | 'removed' | 'inside'
@@ -156,6 +156,7 @@ export function createGraphStore(opts: StoreOptions): GraphStore {
   },
 
   async loadModel(id, loadOpts) {
+    id = normalizeModelId(id)
     if (get().loading === id) return
     set({ loading: id, error: null, errorModel: null })
     try {

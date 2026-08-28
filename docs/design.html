@@ -313,7 +313,7 @@ footer {
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">Design doc · v1.6 · M1–M18 shipped 2026-08-21</span>
+  <span class="eyebrow">Design doc · v1.7 · M1–M19 shipped 2026-08-28</span>
   <h1>modelmap</h1>
   <p class="tagline">Paste a Hugging Face model id. Get a <strong>living map of the network</strong> — explorable down to every projection, animated so you can watch a token flow from embedding to logits.</p>
 
@@ -410,6 +410,7 @@ footer {
     <li><a href="#m16"><span class="no">26</span>M16 · The planner on the map</a></li>
     <li><a href="#m17"><span class="no">27</span>M17 · Takeaways</a></li>
     <li><a href="#m18"><span class="no">28</span>M18 · Finding things</a></li>
+    <li><a href="#m19"><span class="no">29</span>M19 · First impressions</a></li>
   </ul>
 </section>
 
@@ -889,6 +890,11 @@ footer {
       <p>Node finder (/), revealing deep links, double-click-to-open repaired, VLM cost fix (§28).</p>
       <p class="accept">accepts when <b>typing k_norm + Enter lands on the module in an 80-layer model</b>.</p>
     </div></div>
+    <div class="ms"><div class="tag">M19</div><div>
+      <h3>First impressions</h3>
+      <p>Gated repos say the fix, pasted URLs/ollama ids/typographic dashes normalize, honest fallback banners, subfolder safetensors, Hub-429 hardening + opt-in server token, transformers 5.16, daily trending canary (§29).</p>
+      <p class="accept">accepts when <b>every failed real-user request from the week's traffic log resolves or explains itself</b>.</p>
+    </div></div>
   </div>
 </section>
 
@@ -1228,8 +1234,23 @@ footer {
   <p class="accept">accepts when <b>"/", "k_norm", Enter selects <code>model.layers.0.self_attn.k_norm</code> with the breadcrumb showing the path, and double-clicking the layer stack opens it</b>.</p>
 </section>
 
+<section id="m19">
+  <span class="eyebrow"><span class="no">29</span> M19 · First impressions</span>
+  <h2>The failure message is the product</h2>
+  <p>Cloud Run's request log for one week of real traffic (960 extractions, 578 distinct clients, HN/X/Gigazine referers) reshuffled the backlog: nearly every failed request was one of four fixable shapes, and none of them was diffusion.</p>
+  <ul>
+    <li><strong>Gated repos were the #1 failure</strong> (sam3, gemma, meta-llama, LTX-2.5) — and every one surfaced as a masked 422 "could not read any safetensors headers". The config rung caught the gated <code>OSError</code> and degraded to the weights view, whose per-file <code>except Exception</code> swallowed the <code>GatedRepoError</code>s. Now <code>hubio.is_auth_error()</code> walks the cause chain, both rungs re-raise auth errors, and the server's existing 403 ("accept its terms + add your token") finally fires. Public-config/gated-weights repos (meta-llama) keep their full map with a note that dtypes are config-declared.</li>
+    <li><strong>People paste what they have</strong>: full Hub URLs, <code>hf.co/owner/name:Q4_K_M</code> (ollama's registry syntax, verbatim in the logs), ids that went through a word processor and came back with U+2011 hyphens, links into a repo's file tree, paths to a GGUF file. <code>ids.normalize_model_id()</code> (mirrored in the web client) collapses all of it onto canonical <code>owner/name[:variant]</code> — one cache entry per model, and a pasted GGUF file name selects its variant via the contained quant label.</li>
+    <li><strong>Honest banners.</strong> Unknown model types say "isn't in transformers X.Y — brand-new, or vendor-code-only" instead of parroting transformers' pip-upgrade advice (wrong for Breeze-style vendor architectures); pickle-only repos (YOLO26) say pickle can't be inspected without executing it; the weights view now folds in subfolder safetensors the root index missed (Breeze's audio tokenizer: 183 → 363 nodes) and counts colliding variant re-exports instead of silently overwriting.</li>
+    <li><strong>The Hub rate-limits a shared egress IP</strong> — logged 429/503s in production. The search proxy gets a 5-minute TTL cache, serves stale on Hub errors and answers 503 + Retry-After instead of a raw traceback; trending and search calls can carry an operator token (<code>MODELMAP_HF_TOKEN</code>, explicit opt-in with the gated-visibility caveat documented — never the ambient <code>HF_TOKEN</code>).</li>
+    <li><strong>transformers 5.15 → 5.16.1</strong>: <code>glm5_next</code> (GLM-5.3-Flash, 313.9B VLM, fp8 experts) moves from weights view to a full structural map. Staying within one release of transformers is now a standing maintenance clock, watched by…</li>
+    <li><strong>A daily trending canary</strong> (<code>scripts/canary.py</code>, GitHub Actions): probes the Hub's top-20 trending against production, buckets outcomes (full/structural/weights/gated/unsupported/FAIL), fails only on FAIL. <code>scripts/traffic.py</code> reproduces the log analysis that drove this milestone.</li>
+  </ul>
+  <p class="accept">accepts when <b>a gated repo answers with the license fix, <code>hf.co/owner/name:Q4</code> loads, and the canary run has zero FAIL buckets</b>.</p>
+</section>
+
 <footer>
-  modelmap · design doc v1.6 · M1–M18 shipped
+  modelmap · design doc v1.7 · M1–M19 shipped
 </footer>
 
 </div>

@@ -9,6 +9,34 @@ export function setToken(t: string) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
+// mirrors ids.normalize_model_id on the server: full Hub URLs, ollama-style
+// "hf.co/owner/name:Q4", typographic dashes and file-tree links all collapse
+// to canonical "owner/name[:variant]" before they reach the URL bar or the API
+const DASHES = /[\u2010-\u2015\u2212]/g
+const ZERO_WIDTH = /[\u200b-\u200d\u2060\ufeff]/g
+const URL_PREFIX = /^(?:https?:\/\/)?(?:www\.)?(?:huggingface\.co|hf\.co)\//i
+const URL_TAIL = /\/(?:tree|blob|resolve|raw|commit|discussions|blame)(?:\/.*)?$/
+const QUANTISH = /(?:^|[-_.])(i?q\d|f16|bf16|f32|fp\d|mxfp\d|nvfp\d|int\d)/i
+
+export function normalizeModelId(raw: string): string {
+  let s = raw.trim().replace(DASHES, '-').replace(ZERO_WIDTH, '')
+  if (s.startsWith('local:')) return s
+  s = s.replace(URL_PREFIX, '')
+  s = s.split('?')[0].split('#')[0].replace(URL_TAIL, '').replace(/^\/+|\/+$/g, '')
+  const parts = s.split('/')
+  if (parts.length > 2) {
+    const tail = parts[parts.length - 1]
+    const i = tail.lastIndexOf('.')
+    const base = i > 0 ? tail.slice(0, i) : ''
+    const ext = i >= 0 ? tail.slice(i + 1) : ''
+    s = parts.slice(0, 2).join('/')
+    if (ext.toLowerCase() === 'gguf' && base) s += ':' + base
+    else if (!tail.includes(':') && QUANTISH.test(tail)) s += ':' + tail
+    else if (tail.includes(':')) s += ':' + tail.slice(tail.lastIndexOf(':') + 1)
+  }
+  return s
+}
+
 export async function fetchGraph(modelId: string, revision = 'main'): Promise<GraphDoc> {
   const headers: Record<string, string> = {}
   const tok = getToken()

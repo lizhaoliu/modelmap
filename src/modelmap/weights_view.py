@@ -14,7 +14,7 @@ from typing import Iterable
 from huggingface_hub import HfApi, get_safetensors_metadata, parse_safetensors_file_metadata
 
 from modelmap import collapse
-from modelmap.hubio import with_retries
+from modelmap.hubio import is_auth_error, with_retries
 from modelmap.schema import SCHEMA_VERSION, Edge, Graph, Node
 
 MAX_FILES = 300
@@ -23,36 +23,45 @@ MAX_FILES = 300
 def _collect_tensors(model_id: str, revision: str, token: str | None, notes: list[str]):
     """Tensor name → TensorInfo for the whole repo.
 
-    Fast path: the standard root-level model.safetensors(.index.json). Fallback
-    (diffusers-style pipelines, arbitrary layouts): scan every *.safetensors in
-    the repo, namespacing tensor names by their folder so components don't
-    collide ("transformer/…" → "transformer.blocks.0…")."""
+    Fast path: the standard root-level model.safetensors(.index.json). Then
+    every *.safetensors the index didn't cover (audio tokenizers, codecs,
+    diffusers-style components in subfolders), namespaced by folder so
+    components don't collide ("transformer/…" → "transformer.blocks.0…").
+    Auth failures (gated repos) propagate — the caller's message about
+    accepting the license is the fix, not "no headers"."""
+    tensors: dict = {}
+    covered: set[str] | None = None
     try:
         meta = with_retries(
             lambda: get_safetensors_metadata(model_id, revision=revision, token=token)
         )
-        tensors = {}
         for fm in meta.files_metadata.values():
             tensors.update(fm.tensors)
-        return tensors
-    except Exception:
-        pass
+        covered = set(meta.files_metadata)
+    except Exception as e:
+        if is_auth_error(e):
+            raise
 
-    files = [
-        f
-        for f in with_retries(
+    try:
+        listing = with_retries(
             lambda: HfApi(token=token).list_repo_files(model_id, revision=revision)
         )
-        if f.endswith(".safetensors")
+    except Exception as e:
+        if not tensors or is_auth_error(e):
+            raise
+        return tensors  # the indexed files are enough; don't fail on a listing hiccup
+    files = [
+        f for f in listing
+        if f.endswith(".safetensors") and (covered is None or f not in covered)
     ]
-    if not files:
+    if not files and not tensors:
         raise ValueError(f"'{model_id}' has no safetensors files to build a weights view from")
     if len(files) > MAX_FILES:
         notes.append(f"repo has {len(files)} safetensors files; reading the first {MAX_FILES}")
         files = files[:MAX_FILES]
 
-    tensors = {}
     failed = 0
+    clobbered = 0
     for f in files:
         prefix = f.rsplit("/", 1)[0].replace("/", ".") + "." if "/" in f else ""
         try:
@@ -61,13 +70,22 @@ def _collect_tensors(model_id: str, revision: str, token: str | None, notes: lis
                     model_id, f, revision=revision, token=token
                 )
             )
-        except Exception:
+        except Exception as e:
+            if is_auth_error(e):
+                raise
             failed += 1
             continue
         for tname, info in fm.tensors.items():
+            if prefix + tname in tensors:
+                clobbered += 1
             tensors[prefix + tname] = info
     if failed:
         notes.append(f"{failed} safetensors files could not be parsed")
+    if clobbered:
+        notes.append(
+            f"{clobbered} tensor names appear in more than one file (precision or variant "
+            "re-exports of one component) — the map keeps one copy of each"
+        )
     if not tensors:
         raise ValueError(f"could not read any safetensors headers from '{model_id}'")
     return tensors

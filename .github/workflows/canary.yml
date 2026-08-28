@@ -1,0 +1,22 @@
+# Trending-coverage canary (design doc §29): every day, ask the live site to
+# map the Hub's current trending models and fail loudly on anything that
+# breaks in an *unexpected* way (gated and pickle-only repos are expected
+# buckets, not failures). Public API only; no secrets.
+name: canary
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily, 06:17 UTC
+  workflow_dispatch:
+
+jobs:
+  trending:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: probe trending models against modelmap.cc
+        run: python scripts/canary.py --base https://modelmap.cc --limit 20 --md "$GITHUB_STEP_SUMMARY"
