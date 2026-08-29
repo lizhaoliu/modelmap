@@ -104,16 +104,38 @@ def hub_fetcher(model_id: str, filename: str, revision: str, token: str | None) 
 
     def fetch(offset: int, length: int) -> bytes:
         h = {**base, "Range": f"bytes={offset}-{offset + length - 1}"}
-        r = client.get(url, headers=h)
-        if r.status_code in (200, 206):
-            return r.content
-        if r.status_code == 416:
-            return b""
-        r.raise_for_status()
-        return r.content
+        with client.stream("GET", url, headers=h) as r:
+            if r.status_code == 416:
+                return b""
+            if r.status_code not in (200, 206):
+                r.raise_for_status()
+            return _read_window(r, offset, length)
 
     fetch.close = client.close  # type: ignore[attr-defined]
     return fetch
+
+
+def _read_window(r, offset: int, length: int) -> bytes:
+    """The requested byte window from a streamed response — never more.
+
+    A server that ignores the Range header answers 200 with the WHOLE file;
+    `r.content` on a 16 GB checkpoint would buffer all of it and kill the
+    worker (seen in production when a repo turned gated mid-CDN-propagation).
+    On 200 the body starts at byte 0, so skip to `offset` first; stop reading
+    the moment the window is full."""
+    skip = offset if r.status_code == 200 else 0
+    out = bytearray()
+    for chunk in r.iter_bytes():
+        if skip:
+            if len(chunk) <= skip:
+                skip -= len(chunk)
+                continue
+            chunk = chunk[skip:]
+            skip = 0
+        out += chunk[: length - len(out)]
+        if len(out) >= length:
+            break
+    return bytes(out)
 
 
 def local_fetcher(path: str) -> Fetch:

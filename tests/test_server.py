@@ -361,3 +361,15 @@ def test_search_caches_and_serves_stale_on_hub_429(client, monkeypatch):
     assert r.status_code == 503
     assert "rate-limiting" in r.json()["detail"]
     assert r.headers.get("retry-after")
+
+
+def test_bare_401_maps_to_the_gated_message(client, monkeypatch):
+    """A gated file read can surface as a plain httpx 401 with no 'gated' or
+    'token' in the text; it must still get the actionable 403."""
+    def gated_extract(model_id, revision, token, allow_local=False, trust_remote_code=False):
+        raise RuntimeError("Client error '401 Unauthorized' for url 'https://huggingface.co/o/gated-gguf/resolve/main/model.gguf'")
+
+    monkeypatch.setattr(server, "_extract_job", gated_extract)
+    r = client.get("/api/graph/o/gated-gguf")
+    assert r.status_code == 403
+    assert "accept its terms" in r.json()["detail"]

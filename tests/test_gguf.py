@@ -151,3 +151,39 @@ def test_choose_variant_from_a_pasted_file_stem():
     variants = {"Q8_0": ["a-Q8_0.gguf"], "BF16": ["a-BF16.gguf"], "F16": ["a-F16.gguf"]}
     assert choose_variant(variants, "Ornith-1.5-35B-Q8_0") == "Q8_0"
     assert choose_variant(variants, "model-BF16") == "BF16"
+
+
+def test_read_window_caps_a_range_ignoring_server():
+    """A server that ignores Range answers 200 with the WHOLE file; the fetch
+    must return exactly the requested window and stop reading — not buffer
+    16 GB into the worker (seen in prod when a repo turned gated)."""
+    from modelmap.gguf import _read_window
+
+    consumed = {"n": 0}
+
+    class FullFile200:
+        status_code = 200
+
+        def iter_bytes(self):
+            for i in range(10_000_000):  # would be ~640 GB if fully consumed
+                consumed["n"] += 1
+                yield bytes([i % 251]) * 65536
+
+    body = b"".join(bytes([i % 251]) * 65536 for i in range(4))
+    out = _read_window(FullFile200(), offset=100, length=1000)
+    assert out == body[100:1100]
+    assert consumed["n"] < 20  # stopped almost immediately
+
+
+def test_read_window_passes_through_a_proper_206():
+    from modelmap.gguf import _read_window
+
+    class Partial206:
+        status_code = 206
+
+        def iter_bytes(self):
+            yield b"abc"
+            yield b"defgh"
+
+    # a 206 body already starts at the requested offset: no skipping
+    assert _read_window(Partial206(), offset=500, length=6) == b"abcdef"

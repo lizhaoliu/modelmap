@@ -40,6 +40,7 @@ from modelmap.analytics import (
     estimate_throughput, plan_serving, plan_training, summarize,
 )
 from modelmap.gallery import CLASSICS, trending, trending_ids
+from modelmap.hubio import is_auth_error
 from modelmap.ids import is_local, parse_model_id
 from modelmap.ratelimit import RateLimiter
 from modelmap.schema import SCHEMA_VERSION
@@ -230,7 +231,7 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
                 404,
                 f"'{model_id}' was not found on the Hugging Face Hub — if it is private, add your HF token (top bar → token)",
             )
-        if "gated" in low or ("401" in msg and "token" in low):
+        if "gated" in low or ("401" in msg and "token" in low) or is_auth_error(e):
             raise HTTPException(
                 403,
                 f"'{model_id}' is a gated repo — accept its terms on huggingface.co and add "
