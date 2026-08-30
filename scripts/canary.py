@@ -57,17 +57,29 @@ def trending(limit: int) -> list[str]:
 
 def probe(base: str, mid: str) -> tuple[str, str]:
     """(bucket, detail) for one model against the deployed API."""
-    st, body = _get(f"{base}/api/summary/{urllib.parse.quote(mid)}")
-    detail = (body or {}).get("detail", "") if isinstance(body, dict) else ""
-    if st == 200 and isinstance(body, dict):
-        fid = body.get("fidelity", "?")
-        n = body.get("params_total")
-        p = f"{n / 1e9:.1f}B" if isinstance(n, (int, float)) and n else "?"
-        return fid, f"{p} params"
-    if st == 403 and "gated" in detail:
-        return "gated", detail[:80]
-    if st == 422 and ("pickle checkpoints" in detail or "nothing modelmap can read" in detail):
-        return "unsupported", detail[:80]
+    for attempt in (0, 1):
+        st, body = _get(f"{base}/api/summary/{urllib.parse.quote(mid)}")
+        detail = (body or {}).get("detail", "") if isinstance(body, dict) else ""
+        if st == 200 and isinstance(body, dict):
+            fid = body.get("fidelity", "?")
+            n = body.get("params_total")
+            p = f"{n / 1e9:.1f}B" if isinstance(n, (int, float)) and n else "?"
+            return fid, f"{p} params"
+        if st == 403 and "gated" in detail:
+            return "gated", detail[:80]
+        if st == 422 and ("pickle checkpoints" in detail or "nothing modelmap can read" in detail):
+            return "unsupported", detail[:80]
+        # the Hub throttling the server's shared IP is the site being honest,
+        # not broken: wait it out once, then report without failing the run
+        if st == 503 and "rate-limiting" in detail:
+            if attempt == 0:
+                import re
+                import time
+                m = re.search(r"about (\d+) s", detail)
+                time.sleep(min(int(m.group(1)) if m else 60, 240))
+                continue
+            return "hub-limited", detail[:80]
+        break
     return "FAIL", f"HTTP {st}: {detail[:120]}"
 
 
@@ -91,7 +103,7 @@ def main() -> None:
     print(f"\n{len(rows)} trending models — {summary}")
 
     if args.md:
-        icon = {"full": "🟢", "structural": "🟢", "weights": "🟡", "gated": "🔒", "unsupported": "⚪", "FAIL": "🔴"}
+        icon = {"full": "🟢", "structural": "🟢", "weights": "🟡", "gated": "🔒", "unsupported": "⚪", "hub-limited": "⏳", "FAIL": "🔴"}
         with open(args.md, "a") as f:
             f.write(f"## modelmap trending canary — {args.base}\n\n{summary}\n\n")
             f.write("| model | outcome | detail |\n|---|---|---|\n")
