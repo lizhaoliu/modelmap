@@ -108,11 +108,25 @@ def hub_fetcher(model_id: str, filename: str, revision: str, token: str | None) 
             if r.status_code == 416:
                 return b""
             if r.status_code not in (200, 206):
-                r.raise_for_status()
+                # never raise httpx's own error here: it drags the live
+                # Request/Response (open SSL stream) along, and exceptions
+                # cross the worker's process boundary by pickling — an
+                # unpicklable one kills the worker mid-sendback
+                raise _status_error(r.status_code, filename, url)
             return _read_window(r, offset, length)
 
     fetch.close = client.close  # type: ignore[attr-defined]
     return fetch
+
+
+def _status_error(status: int, filename: str, url: str) -> "GGUFError":
+    """A plain, picklable error whose wording routes it to the right friendly
+    answer upstream: 401/403 → the gated message, 429 → the rate-limit 503."""
+    if status in (401, 403):
+        return GGUFError(f"{status} on '{filename}' — a gated repo needs its license accepted and a token ({url})")
+    if status == 429:
+        return GGUFError(f"429 Too Many Requests from the Hub fetching '{filename}'")
+    return GGUFError(f"HTTP {status} from the Hub fetching '{filename}' ({url})")
 
 
 def _read_window(r, offset: int, length: int) -> bytes:

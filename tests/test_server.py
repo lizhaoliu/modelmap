@@ -373,3 +373,28 @@ def test_bare_401_maps_to_the_gated_message(client, monkeypatch):
     r = client.get("/api/graph/o/gated-gguf")
     assert r.status_code == 403
     assert "accept its terms" in r.json()["detail"]
+
+
+def test_unpicklable_worker_exceptions_are_flattened(monkeypatch):
+    """An exception that can't pickle must not kill the worker: _extract_job
+    flattens it to a plain RuntimeError carrying the original type name."""
+    import modelmap.extract as extract_mod
+
+    class Unpicklable(Exception):
+        def __init__(self, msg, sock):
+            super().__init__(msg)
+            self.sock = sock  # e.g. a live SSL stream
+
+    def boom(*a, **k):
+        raise Unpicklable("401 gated thing", sock=threading.Lock())
+
+    monkeypatch.setattr(extract_mod, "extract_graph", boom)
+    with pytest.raises(RuntimeError, match="Unpicklable: 401 gated thing"):
+        server._extract_job("o/m", "main", None)
+    # a picklable exception passes through with its type intact
+    def clean(*a, **k):
+        raise ValueError("plain and picklable")
+
+    monkeypatch.setattr(extract_mod, "extract_graph", clean)
+    with pytest.raises(ValueError, match="plain and picklable"):
+        server._extract_job("o/m", "main", None)

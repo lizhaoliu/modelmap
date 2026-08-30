@@ -187,3 +187,21 @@ def test_read_window_passes_through_a_proper_206():
 
     # a 206 body already starts at the requested offset: no skipping
     assert _read_window(Partial206(), offset=500, length=6) == b"abcdef"
+
+
+def test_status_errors_are_plain_and_picklable():
+    """httpx's HTTPStatusError drags live sockets across the worker's pickle
+    boundary and kills the process; fetch must raise plain errors whose
+    wording routes to the friendly answers (gated / rate-limited)."""
+    import pickle
+
+    from modelmap.gguf import _status_error
+
+    gated = _status_error(401, "model-Q4_K_M.gguf", "https://huggingface.co/o/r/resolve/main/model-Q4_K_M.gguf")
+    assert "gated" in str(gated)
+    limited = _status_error(429, "f.gguf", "u")
+    assert "429 Too Many Requests" in str(limited)
+    other = _status_error(500, "f.gguf", "u")
+    assert "HTTP 500" in str(other)
+    for e in (gated, limited, other):
+        assert str(pickle.loads(pickle.dumps(e))) == str(e)

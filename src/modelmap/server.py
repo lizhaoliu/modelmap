@@ -62,12 +62,10 @@ def _make_pool() -> concurrent.futures.ProcessPoolExecutor:
         mp_context=multiprocessing.get_context("spawn"),
         initializer=_worker_init,
         initargs=(settings.worker_mem_mb,),
-        # recycle aggressively: glibc arenas never return a big extraction's
-        # high-water mark, so a worker that mapped a 300B model keeps that RSS
-        # forever — a streak of heavy extractions (the canary probing trending)
-        # walked one worker into the container's 2 GiB ceiling and the cgroup
-        # OOM-killed task ~19 every time. A spawn costs ~4 s; correctness wins.
-        max_tasks_per_child=4,
+        # recycle workers periodically: glibc arenas keep a big extraction's
+        # high-water RSS forever (memory telemetry shows ~35% peak of 2 GiB
+        # under a full trending sweep, so 16 is hygiene, not survival)
+        max_tasks_per_child=16,
     )
 
 
@@ -141,10 +139,23 @@ def _extract_job(
     # bracket every task in the logs: a start without an end is where a
     # silently-killed worker was when it died
     print(f"[worker {os.getpid()}] start {model_id}", file=sys.stderr, flush=True)
-    doc = extract_graph(
-        model_id, revision=revision, token=token or worker_settings.hf_token,
-        allow_local=allow_local, trust_remote_code=trust_remote_code,
-    ).to_json_dict()
+    try:
+        doc = extract_graph(
+            model_id, revision=revision, token=token or worker_settings.hf_token,
+            allow_local=allow_local, trust_remote_code=trust_remote_code,
+        ).to_json_dict()
+    except BaseException as e:
+        # exceptions reach the parent by pickling; one that can't round-trip
+        # (httpx errors dragging live sockets, exotic __init__ signatures)
+        # kills the worker mid-sendback and masquerades as a memory death.
+        # Flatten those to a plain error; picklable ones pass through intact.
+        import pickle
+
+        try:
+            pickle.loads(pickle.dumps(e))
+        except Exception:
+            raise RuntimeError(f"{type(e).__name__}: {e}") from None
+        raise
     print(f"[worker {os.getpid()}] done {model_id}", file=sys.stderr, flush=True)
     return doc
 
