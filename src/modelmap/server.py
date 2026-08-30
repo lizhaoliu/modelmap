@@ -62,7 +62,12 @@ def _make_pool() -> concurrent.futures.ProcessPoolExecutor:
         mp_context=multiprocessing.get_context("spawn"),
         initializer=_worker_init,
         initargs=(settings.worker_mem_mb,),
-        max_tasks_per_child=64,  # recycle workers: bounds any slow memory growth
+        # recycle aggressively: glibc arenas never return a big extraction's
+        # high-water mark, so a worker that mapped a 300B model keeps that RSS
+        # forever — a streak of heavy extractions (the canary probing trending)
+        # walked one worker into the container's 2 GiB ceiling and the cgroup
+        # OOM-killed task ~19 every time. A spawn costs ~4 s; correctness wins.
+        max_tasks_per_child=4,
     )
 
 
