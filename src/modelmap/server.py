@@ -209,6 +209,9 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
                 "— usually transient; try again",
             )
         if "BrokenProcessPool" in name or "MemoryError" in name:
+            # the child usually dies without a traceback; leave the parent's
+            # view in the logs so a recurrence isn't archaeology
+            log.warning("worker lost extracting %s: %r", model_id, e)
             if owner:
                 _reset_pool()
             raise HTTPException(
