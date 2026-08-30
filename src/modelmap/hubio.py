@@ -60,7 +60,9 @@ def _rate_limit_wait(e: BaseException) -> float | None:
     """Seconds the Hub asks us to wait on a 429, when that wait is short enough
     to absorb inside the request; None for anything else."""
     msg = str(e)
-    if "429" not in msg or "rate limit" not in msg.lower():
+    low = msg.lower()
+    # huggingface_hub says "rate limit"; a raw httpx 429 says "Too Many Requests"
+    if "429" not in msg or ("rate limit" not in low and "too many requests" not in low):
         return None
     import re
 

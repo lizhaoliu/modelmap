@@ -101,6 +101,10 @@ def _worker_init(mem_mb: int) -> None:
     Platform-level isolation is documented in DEPLOY.md."""
     import os
 
+    import faulthandler
+    import sys
+
+    faulthandler.enable(file=sys.stderr)  # a native crash names its line in the logs
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -128,13 +132,21 @@ def _extract_job(
     model_id: str, revision: str, token: str | None,
     allow_local: bool = False, trust_remote_code: bool = False,
 ) -> dict:
+    import os
+    import sys
+
     from modelmap.extract import extract_graph
     from modelmap.settings import settings as worker_settings  # spawn: fresh read of the env
 
-    return extract_graph(
+    # bracket every task in the logs: a start without an end is where a
+    # silently-killed worker was when it died
+    print(f"[worker {os.getpid()}] start {model_id}", file=sys.stderr, flush=True)
+    doc = extract_graph(
         model_id, revision=revision, token=token or worker_settings.hf_token,
         allow_local=allow_local, trust_remote_code=trust_remote_code,
     ).to_json_dict()
+    print(f"[worker {os.getpid()}] done {model_id}", file=sys.stderr, flush=True)
+    return doc
 
 
 # ------------------------------------------------------- de-dup / back-pressure
@@ -224,7 +236,7 @@ def _run_extraction(model_id: str, revision: str, token: str | None) -> bytes:
             )
         msg = str(e)
         low = msg.lower()
-        if "429" in msg and "rate limit" in low:
+        if "429" in msg and ("rate limit" in low or "too many requests" in low):
             m = re.search(r"retry after (\d+)", low)
             wait = int(m.group(1)) if m else 60
             raise HTTPException(
